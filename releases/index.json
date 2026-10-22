@@ -18,5 +18,15 @@
       "release-assets/cvat-track-refiner-source-v0.2.0.zip",
       "release-assets/cvat-track-refiner-v0.2.0-SHA256SUMS.txt"
     ]
+  },
+  {
+    "tag": "v0.2.1",
+    "commit": "71a99ed9ff6f601cd0ec29dcf022fb39ce404471",
+    "prerelease": true,
+    "assets": [
+      "release-assets/cvat-track-refiner-brave-v0.2.1.zip",
+      "release-assets/cvat-track-refiner-source-v0.2.1.zip",
+      "release-assets/cvat-track-refiner-v0.2.1-SHA256SUMS.txt"
+    ]
   }
 ]
