@@ -1,0 +1,2 @@
+24d728127d578c35e1a53f6de8679a5e164c75ec1de76423e557edea25ddc1c8  cvat-track-refiner-brave-v0.3.0.zip
+31749e497cdb0c70f91b9846b0eb129aee598f8f649cd4c9a145e64dee19c888  cvat-track-refiner-source-v0.3.0.zip
