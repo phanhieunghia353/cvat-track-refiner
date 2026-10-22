@@ -1,5 +1,12 @@
 # Changelog
 
+## 0.3.1 — Preserve track identity during Apply
+
+- Remove the replacement-Commit writer. Prepare native ObjectStates and edit only points on the existing track, with exact client/server/original-keyframe ID validation and audit.
+- Keep selection and refresh via UPDATE_ANNOTATIONS_SUCCESS. Missing native state/save fails before writing; no replacement fallback.
+- Restore a whole batch using the verified native history when available; long batches restore original points and remove only inserted keys. CVAT's edited-source mark may remain in this fallback and is reported.
+- Detect known partial writes without retrying, retain read-only audit/backup and Auto save settings, and add identity/long-history/sparse-key/partial-error regressions.
+
 ## 0.3.0 · 22 October 2026
 
 - Introduce `cvat-reconstruction/v1`: observed surface samples, per-frame poses, gauge, provenance and internal validation, independent of the box fitter.

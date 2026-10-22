@@ -1,6 +1,6 @@
 /** Controller-side write boundary, dependency-injected for tests and adapters.
  * Backup persistence MUST succeed before a mutation is sent. Do not retry on a
- * transport error: CVAT may already have committed before the response failed. */
+ * transport error: CVAT may already have edited one or more frames before the response failed. */
 export async function applyProposal({
   call,
   storage,

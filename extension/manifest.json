@@ -1,10 +1,14 @@
 {
   "manifest_version": 3,
   "name": "CVAT Track Refiner · Experimental",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "description": "Reconstruct observed LiDAR surfaces across frames, inspect provenance and edit a common cuboid with local preview and native CVAT Undo.",
   "permissions": ["activeTab", "scripting", "storage"],
   "minimum_chrome_version": "111",
-  "action": { "default_title": "Dựng hình và chỉnh box chung LiDAR" },
-  "background": { "service_worker": "background.js" }
+  "action": {
+    "default_title": "Dựng hình và chỉnh box chung LiDAR"
+  },
+  "background": {
+    "service_worker": "background.js"
+  }
 }

@@ -2,9 +2,10 @@
 
 ## Automated checks
 
-66 tests passed with Node.js using `node scripts/test.mjs`:
+75 tests passed with Node.js using `node scripts/test.mjs`:
 
-- 14 adapter tests: read-only snapshot/preflight, unsaved unrelated edits, Auto save allowed, exact off-target audit, baseline and context conflicts, locked/saving/drawing/review states, metadata/geometry validation, native Undo, post-commit refresh failure, ambiguous Commit error, navigation after Commit, API prefix/trailing-slash discovery without following redirects, filtered-frame rejection and adding keys from a sparse-track draft; core → user common box → native Commit with unrelated-track preservation and no server Save.
+- 23 adapter tests: existing read-only/cloud/baseline/geometry checks plus native in-place Apply, exact client/server/keyframe IDs, selection, unrelated shapes/tags, normalized-angle reads, missing-native-state rejection with no Commit fallback, simulated host ID corruption, full core → user-box → native-save flow, sparse-key range boundaries, partial-write recovery, 60-frame restore beyond a 32-action history and 70-key sparse restore and updating a live v0.3.0 tab without inheriting its replacement undo record.
+
 - 7 geometry/draft tests: XYZ transforms, angular wrap, mutable-attribute inheritance, frame sampling, unsupported cuboids, range boundaries and outside frames, unmeasured dimensions and rejected-sample interpolation.
 - 6 fitting/crop tests: undersized synthetic cuboid, center/yaw refinement, empty/ambiguous inputs, partial-side observability, search expansion, known neighbors, crop boundaries, bounded reservoir sampling and configuration limits.
 - 5 PCD tests: ASCII, binary AoS, binary_compressed SoA, LZF overlap, invalid references, truncation, HTML responses, nonfinite returns and allocation limits.
@@ -16,7 +17,7 @@
 
 - 11 reconstruction tests: fixed-gauge jitter recovery, size invariance, one-plane degeneracy, disconnected islands, exclusion without data loss, rigid common-box projection, replay/privacy, bounded contextual crop, invalid resource settings, eigensolver reconstruction and hidden-frame provenance.
 
-The mocked adapter forbids server Save and unexpected network access. Its commits are in-memory mocks; these tests do not certify native CVAT history internals on a hosted instance.
+The mocked adapter forbids server Save and unexpected network access. Native-state saves/history are in-memory contract fixtures, with a 32-action cap and an explicit forbidden replacement Commit. These tests do not certify a customized hosted CVAT; the user-reported v0.3.0 ID-change behavior was a real regression that the old mocks incorrectly accepted.
 
 All extension JavaScript modules passed syntax checks. Source is formatted with Prettier 3.6.2; formatting is a developer tool, not an extension runtime dependency.
 
@@ -26,7 +27,7 @@ All extension JavaScript modules passed syntax checks. Source is formatted with 
 
 The core never calls `estimateDimensions` and returns no automatic box size. A single plane and disconnected observations remain uncertain. Masks are contextual hints and one-frame surface observations survive. This establishes the tested cases only; it does not measure real-host accuracy, semantic body/mirror separation, physical surface error or global registration robustness.
 
-The in-app browser ran the actual worker and CPU Canvas viewer: provenance picking, frame exclusion/reinclusion, reference change, local numeric common-box editing, manual proposal creation, and legacy mode. Apply stays disabled in demo. The mock adapter also ran the real core/manual-box draft through its audited native Commit path. Live hosted CVAT/Brave behavior has not been certified.
+The in-app browser ran the actual worker and CPU Canvas viewer: provenance picking, frame exclusion/reinclusion, reference change, local numeric common-box editing, manual proposal creation, and legacy mode. Apply stays disabled in demo. The mock adapter also ran the real core/manual-box draft through its audited in-place native-state path. The v0.3.1 writer was tested through contract fixtures, not by mutating a real hosted job. Live hosted CVAT/Brave behavior has not been certified.
 
 ## Controlled synthetic case (legacy fitter)
 

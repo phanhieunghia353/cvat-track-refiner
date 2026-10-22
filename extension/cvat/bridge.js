@@ -1,11 +1,12 @@
 /** Serialized by chrome.scripting into MAIN world: keep every dependency inside
  * this function. Geometry/PCD fitting lives elsewhere; this adapter only reads
- * the open session, downloads same-origin PCDs and performs explicit commits.
- * Never call annotations.save(), import(), clear(), PATCH or a remote service.
- * Native Commit approach informed by MIT prelabelcheck_CVAT (see NOTICE). */
+ * the open session, downloads same-origin PCDs and edits existing ObjectStates.
+ * Never call annotations.commit/save/import/clear, PATCH or a remote service.
+ * ObjectState.save() edits the local model and preserves the track identity. */
 export async function cvatBridge(request) {
   let memory,
-    ownsLock = false;
+    ownsLock = false,
+    releaseUI = () => {};
   const clone = (v) => JSON.parse(JSON.stringify(v));
   const canonical = (v) =>
     Array.isArray(v)
@@ -20,28 +21,24 @@ export async function cvatBridge(request) {
           "}"
         : JSON.stringify(v);
   const equal = (a, b) => canonical(a) === canonical(b);
-  const noIDs = (v) =>
-    Array.isArray(v)
-      ? v.map(noIDs)
-      : v && typeof v === "object"
-        ? Object.fromEntries(
-            Object.entries(v)
-              .filter(([k]) => !["id", "clientID", "uiId"].includes(k))
-              .map(([k, x]) => [k, noIDs(x)]),
-          )
-        : v;
   try {
     const match = location.pathname.match(
       /^(.*?)\/tasks\/(\d+)\/jobs\/(\d+)\/?$/,
     );
     if (!match) throw Error("Mở extension từ tab job CVAT LiDAR.");
-    const slot = Symbol.for("cvat.trackRefiner.v1");
+    // Do not reuse v1's replacement-Commit undo records after extension update.
+    const slot = Symbol.for("cvat.trackRefiner.v2");
     memory = globalThis[slot] || (globalThis[slot] = {});
     if (request.op === "abort") {
       memory.abort?.abort();
       return { ok: true };
     }
-    let store = memory.store;
+    // Reuse only the old adapter's read-only store reference, never its
+    // replacement-Commit history, tokens or context. Updating the extension
+    // must not require reloading the user's CVAT job.
+    let store =
+      memory.store || globalThis[Symbol.for("cvat.trackRefiner.v1")]?.store;
+    if (store) memory.store = store;
     if (!store && typeof globalThis.cvatUI?.registerComponent === "function") {
       globalThis.cvatUI.registerComponent(({ store: s }) => {
         memory.store = s;
@@ -174,9 +171,273 @@ export async function cvatBridge(request) {
         ...s.annotation.annotations.states.filter((x) => x.isGroundTruth),
       );
       store.dispatch({
-        type: "FETCH_ANNOTATIONS_SUCCESS",
+        type: "UPDATE_ANNOTATIONS_SUCCESS",
         payload: { states, history },
       });
+    }
+    // Read angles may be normalized by CVAT. Accept only equivalent rotations
+    // and floating point read noise; metadata and existing IDs stay exact.
+    const samePoints = (a, b) =>
+      Array.isArray(a) &&
+      Array.isArray(b) &&
+      a.length === b.length &&
+      a.every(
+        (v, j) =>
+          Number.isFinite(v) &&
+          Number.isFinite(b[j]) &&
+          (j >= 3 && j <= 5
+            ? Math.abs(Math.atan2(Math.sin(v - b[j]), Math.cos(v - b[j])))
+            : Math.abs(v - b[j])) <=
+            1e-10 +
+              32 * Number.EPSILON * Math.max(1, Math.abs(v), Math.abs(b[j])),
+      );
+    const editedSource = (source) =>
+      ["auto", "semi-auto"].includes(source)
+        ? "semi-auto"
+        : source === "consensus"
+          ? source
+          : "manual";
+    function sameTarget(actual, desired, initialSource) {
+      if (
+        !actual ||
+        ![initialSource, editedSource(initialSource)].includes(actual.source)
+      )
+        return false;
+      const a = clone(actual),
+        b = clone(desired);
+      // The sole allowed metadata change is CVAT's native edited-source mark.
+      b.source = a.source;
+      a.shapes.sort((x, y) => x.frame - y.frame);
+      b.shapes.sort((x, y) => x.frame - y.frame);
+      if (a.shapes.length !== b.shapes.length) return false;
+      for (let i = 0; i < a.shapes.length; i++) {
+        if (!samePoints(a.shapes[i].points, b.shapes[i].points)) return false;
+        a.shapes[i].points = b.shapes[i].points;
+      }
+      // In particular clientID, track.id and original keyframe.id are NOT masked.
+      return equal(a, b);
+    }
+    function interpolated(track, frame) {
+      const keys = [...track.shapes].sort((a, b) => a.frame - b.frame);
+      const index = keys.findLastIndex((s) => s.frame <= frame);
+      if (index < 0) return null;
+      const a = clone(keys[index]),
+        b = keys[index + 1];
+      if (a.frame !== frame) {
+        delete a.id;
+        a.attributes = [];
+        if (b) {
+          const t = (frame - a.frame) / (b.frame - a.frame);
+          a.points = a.points.map((v, j) =>
+            j >= 3 && j <= 5
+              ? v +
+                t *
+                  Math.atan2(
+                    Math.sin(b.points[j] - v),
+                    Math.cos(b.points[j] - v),
+                  )
+              : v + t * (b.points[j] - v),
+          );
+        }
+      }
+      a.frame = frame;
+      return a;
+    }
+    async function nativeEdits(before, desired) {
+      const original = before.tracks.find(
+        (t) => t.clientID === desired.clientID,
+      );
+      if (!original || original.id !== desired.id)
+        throw Error("ID track đã đổi; không sửa.");
+      const edits = [];
+      const wanted = new Map(desired.shapes.map((s) => [s.frame, s]));
+      // Prepare EVERY native handle before the first mutation. Saving points
+      // creates a key only when needed; no import/put/Commit is used as fallback.
+      for (const frame of [
+        ...new Set([...wanted.keys(), ...original.shapes.map((s) => s.frame)]),
+      ].sort((a, b) => a - b)) {
+        const old = original.shapes.find((s) => s.frame === frame),
+          next = wanted.get(frame);
+        if (old && next && equal(old.points, next.points)) continue;
+        const states = await job.annotations.get(frame, true, []);
+        ready(true);
+        const state = states.find(
+          (s) => s.clientID === desired.clientID && !s.isGroundTruth,
+        );
+        const expected = old || interpolated(original, frame);
+        if (
+          !state ||
+          state.objectType !== "track" ||
+          state.shapeType !== "cuboid" ||
+          state.frame !== frame ||
+          typeof state.save !== "function" ||
+          (state.serverID ?? undefined) !== original.id ||
+          state.lock ||
+          !!state.keyframe !== !!old ||
+          !expected ||
+          !samePoints(state.points, expected.points)
+        )
+          throw Error(
+            `Không xác minh được native cuboid ID ${desired.clientID}, frame ${frame}; chưa sửa.`,
+          );
+        edits.push({ frame, state, next, old });
+      }
+      return edits;
+    }
+    function blockUI() {
+      if (typeof document.createElement !== "function" || !document.body)
+        return;
+      const overlay = document.createElement("div");
+      overlay.textContent = "Đang cập nhật hình học trên track hiện có…";
+      overlay.setAttribute("role", "status");
+      overlay.style.cssText =
+        "position:fixed;inset:0;z-index:2147483647;background:#0f172acc;color:white;display:grid;place-items:center;font:20px system-ui;cursor:wait";
+      document.body.appendChild(overlay);
+      const block = (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+      };
+      const events = ["keydown", "pointerdown", "wheel", "touchstart"];
+      events.forEach((type) =>
+        globalThis.addEventListener(type, block, {
+          capture: true,
+          passive: false,
+        }),
+      );
+      releaseUI = () => {
+        overlay.remove();
+        events.forEach((type) =>
+          globalThis.removeEventListener(type, block, true),
+        );
+      };
+    }
+    // A separate helper also restores long batches after CVAT's bounded native
+    // history has evicted early edits. It removes ONLY keys introduced by this
+    // Apply, not the track. Source may remain marked edited in that fallback.
+    async function writeNative(
+      before,
+      desired,
+      edits,
+      token,
+      restoring = false,
+    ) {
+      const startHistory = clone(await job.actions.get());
+      if (!equal(await exported(), before))
+        throw Error("Annotation vừa thay đổi; chưa sửa.");
+      ready(true);
+      memory.used.add(token);
+      memory.latest = null;
+      const autoSave = ready().settings?.workspace?.autoSave;
+      let completed = 0,
+        attempted = 0,
+        writeError;
+      blockUI();
+      for (const edit of edits) {
+        try {
+          ready(true);
+          attempted++;
+          if (!edit.next) edit.state.keyframe = false;
+          else edit.state.points = [...edit.next.points];
+          await edit.state.save(); // local ObjectState.save, never annotations.save
+          completed++;
+        } catch (error) {
+          writeError = error;
+          break;
+        }
+      }
+      let after,
+        history,
+        audited = false,
+        warning = writeError
+          ? `Apply dừng sau ${completed}/${edits.length} frame: ${writeError.message}. Không Apply lặp.`
+          : "";
+      const expectedAfter = (count) => {
+        const target = clone(
+          before.tracks.find((t) => t.clientID === desired.clientID),
+        );
+        const shapes = new Map(target.shapes.map((s) => [s.frame, s]));
+        for (const edit of edits.slice(0, count))
+          if (edit.next) shapes.set(edit.frame, clone(edit.next));
+          else shapes.delete(edit.frame);
+        target.shapes = [...shapes.values()].sort((a, b) => a.frame - b.frame);
+        return target;
+      };
+      try {
+        after = await exported();
+        const actual = after.tracks.find(
+          (t) => t.clientID === desired.clientID,
+        );
+        const expected = writeError
+          ? [expectedAfter(completed), expectedAfter(attempted)]
+          : [desired];
+        if (
+          !equal(
+            without(before, desired.clientID),
+            without(after, desired.clientID),
+          ) ||
+          !expected.some((target) =>
+            sameTarget(
+              actual,
+              target,
+              before.tracks.find((t) => t.clientID === desired.clientID).source,
+            ),
+          )
+        )
+          throw Error(
+            "Audit không khớp ID/hình học/metadata hoặc annotation khác. Dừng; kiểm tra CVAT và backup.",
+          );
+        audited = true;
+        history = clone(await job.actions.get());
+        if (!restoring && !equal(before, after)) {
+          // Native history may be capped (32 in upstream). Use native Undo only
+          // when ALL our actions are still present and the retained prefix fits.
+          const n = edits.length,
+            tail = history.undo.slice(-n);
+          const dropped = startHistory.undo.length + n - history.undo.length;
+          const nativeUndoCount =
+            !writeError &&
+            n > 0 &&
+            history.undo.length >= n &&
+            dropped >= 0 &&
+            tail.every(
+              (item, i) =>
+                item[1] === edits[i].frame && /points|keyframe/i.test(item[0]),
+            ) &&
+            equal(history.undo.slice(0, -n), startHistory.undo.slice(dropped))
+              ? n
+              : 0;
+          memory.latest = {
+            before,
+            after,
+            history,
+            nativeUndoCount,
+            clientID: desired.clientID,
+          };
+        }
+        await refresh();
+      } catch (error) {
+        warning = [warning, error.message].filter(Boolean).join("\n");
+        // A render failure after a successful audit does not erase a valid undo.
+        if (!audited) memory.latest = null;
+      }
+      const target = after?.tracks.find((t) => t.clientID === desired.clientID);
+      return {
+        ok: true,
+        applied: writeError ? null : true,
+        partial: !!writeError,
+        audited,
+        identityPreserved: audited,
+        clientID: target?.clientID,
+        serverID: target?.id,
+        changedFrames: completed,
+        warning,
+        canUndo: !!memory.latest,
+        otherTracks: before.tracks.length - 1,
+        autoSave,
+        sourceBefore: before.tracks.find((t) => t.clientID === desired.clientID)
+          .source,
+        sourceAfter: target?.source,
+      };
     }
     if (request.op === "snapshot") {
       const annotations = await exported(),
@@ -322,32 +583,74 @@ export async function cvatBridge(request) {
       if (!last || typeof job.actions?.undo !== "function")
         throw Error("Chưa có Apply để hoàn tác trong tab này.");
       const history = await job.actions.get();
-      if (
-        !equal(history, last.history) ||
-        !equal(noIDs(before), noIDs(last.after))
-      )
+      if (!equal(history, last.history) || !equal(before, last.after))
         throw Error(
-          "CVAT có chỉnh sửa/Undo mới. Dùng Undo/Redo gốc của CVAT để chọn đúng thao tác.",
+          "CVAT có chỉnh sửa/Undo/Save mới. Không khôi phục đè lên dữ liệu mới; kiểm tra lịch sử CVAT.",
         );
       ready(true);
-      await job.actions.undo(1);
       memory.latest = null;
-      let warning = "";
-      try {
-        const after = await exported();
-        if (!equal(noIDs(after), noIDs(last.before)))
-          warning =
-            "Undo đã chạy nhưng dữ liệu không khớp snapshot; kiểm tra CVAT.";
-        await refresh();
-      } catch (e) {
-        warning = "Undo đã chạy; " + e.message;
+      if (last.nativeUndoCount) {
+        // A short batch can be undone exactly, including CVAT's source marker.
+        // Do not report a failed/partial native undo as an untouched operation.
+        let warning = "",
+          audited = false;
+        try {
+          blockUI();
+          await job.actions.undo(last.nativeUndoCount);
+          const after = await exported();
+          if (!equal(after, last.before))
+            throw Error(
+              "Undo đã chạy nhưng dữ liệu/ID chưa khớp bản trước Apply; kiểm tra CVAT.",
+            );
+          audited = true;
+          await refresh();
+        } catch (error) {
+          warning = error.message;
+        }
+        return {
+          ok: true,
+          undone: audited,
+          audited,
+          identityPreserved: audited,
+          warning,
+        };
       }
-      return { ok: true, undone: true, warning };
+      const saved = last.before.tracks.find(
+        (t) => t.clientID === last.clientID,
+      );
+      const desired = saved && clone(saved);
+      if (!desired) throw Error("Không xác định được track để khôi phục.");
+      const edits = await nativeEdits(before, desired);
+      const reply = await writeNative(
+        before,
+        desired,
+        edits,
+        crypto.randomUUID(),
+        true,
+      );
+      if (reply.applied !== true || !reply.audited)
+        return {
+          ...reply,
+          undone: false,
+          warning: "Khôi phục chưa được xác nhận đầy đủ. " + reply.warning,
+        };
+      return {
+        ok: true,
+        undone: true,
+        audited: true,
+        identityPreserved: true,
+        warning:
+          reply.sourceAfter !== desired.source
+            ? "Đã khôi phục hình học/keyframe và giữ ID. CVAT vẫn đánh dấu nguồn annotation là " +
+              reply.sourceAfter +
+              "."
+            : "",
+      };
     }
     const original = before.tracks.find(
       (t) => t.clientID === request.baseline?.clientID,
     );
-    if (!original || !equal(noIDs(original), noIDs(request.baseline)))
+    if (!original || !equal(original, request.baseline))
       throw Error("Track đã đổi sau khi phân tích. Đọc và phân tích lại.");
     const locks = await job.annotations.get(
       Math.max(job.startFrame, original.shapes[0].frame),
@@ -360,10 +663,6 @@ export async function cvatBridge(request) {
     if (!request.backupStored || !equal(before, request.backup))
       throw Error(
         "Thiếu backup hoặc dữ liệu vừa đổi sau backup. Thử Apply lại để chụp bản mới.",
-      );
-    if (typeof job.annotations.commit !== "function")
-      throw Error(
-        "Host thiếu annotations.commit; không chuyển sang API server.",
       );
     if (typeof request.token !== "string" || memory.used.has(request.token))
       throw Error("Lượt Apply đã được gửi; đọc lại trước khi thử tiếp.");
@@ -380,7 +679,7 @@ export async function cvatBridge(request) {
     )
       throw Error("Khoảng Apply không hợp lệ.");
     const metadata = (t) => {
-      const x = noIDs(t);
+      const x = clone(t);
       delete x.shapes;
       return x;
     };
@@ -447,8 +746,8 @@ export async function cvatBridge(request) {
       )
         throw Error("Keyframe đề xuất không hợp lệ.");
       seen.add(f);
-      const s = noIDs(shape),
-        o = noIDs(old),
+      const s = clone(shape),
+        o = clone(old),
         p = s.points,
         q = o.points;
       delete s.points;
@@ -471,83 +770,20 @@ export async function cvatBridge(request) {
     }
     if (keys.some((k) => !seen.has(k.frame)))
       throw Error("Đề xuất đã xóa keyframe gốc.");
-    delete replacement.clientID;
-    delete replacement.uiId;
+    // Identity is part of the contract, not excluded from the audit.
+    replacement.clientID = original.clientID;
+    if (original.uiId !== undefined) replacement.uiId = original.uiId;
+    else delete replacement.uiId;
     if (original.id === undefined) delete replacement.id;
     else replacement.id = original.id;
-    // Recheck after awaited reads; neither concurrent edits nor Save may slip
-    // between the baseline/backup check and the single native Commit.
-    if (!equal(await exported(), before))
-      throw Error("Annotation vừa thay đổi; chưa Apply.");
-    ready(true);
-    memory.used.add(request.token);
-    const autoSave = ready().settings?.workspace?.autoSave;
-    try {
-      await job.annotations.commit(
-        { tracks: [replacement] },
-        { tracks: [original] },
-        ready().annotation.player.frame.number,
-      );
-    } catch (error) {
-      memory.latest = null;
-      return {
-        ok: true,
-        applied: null,
-        audited: false,
-        canUndo: false,
-        autoSave,
-        warning:
-          "Commit trả lỗi, chưa xác định đã thay đổi bao nhiêu: " +
-          error.message +
-          ". Không thử Apply lại; kiểm tra CVAT và backup trước.",
-      };
-    }
-    // Past the commit boundary, return applied=true even if refresh/audit fails.
-    // A UI error must NEVER encourage replaying a possibly successful mutation.
-    let warning = "",
-      audited = false,
-      after,
-      newTarget;
-    try {
-      after = await exported();
-      const oldIDs = new Set(before.tracks.map((t) => t.clientID));
-      const candidates = after.tracks.filter((t) => !oldIDs.has(t.clientID));
-      newTarget =
-        candidates.length === 1
-          ? candidates[0]
-          : after.tracks.find((t) => t.clientID === original.clientID);
-      if (
-        !newTarget ||
-        !equal(
-          without(before, original.clientID),
-          without(after, newTarget.clientID),
-        ) ||
-        !equal(noIDs(newTarget), noIDs(replacement))
-      )
-        throw Error(
-          "Audit không khớp: kiểm tra target và annotation khác; không tự ghi/rollback tiếp.",
-        );
-      audited = true;
-      const history = clone(await job.actions.get());
-      memory.latest = { before, after, history };
-      await refresh();
-    } catch (e) {
-      warning = e.message;
-      memory.latest = null;
-    }
-    return {
-      ok: true,
-      applied: true,
-      clientID: newTarget?.clientID,
-      warning,
-      canUndo: !!memory.latest,
-      otherTracks: before.tracks.length - 1,
-      autoSave,
-      audited,
-    };
+    const edits = await nativeEdits(before, replacement);
+    if (!edits.length)
+      throw Error("Không có hình học/keyframe nào cần thay đổi.");
+    return await writeNative(before, replacement, edits, request.token);
   } catch (error) {
     return { ok: false, error: error.message };
   } finally {
+    releaseUI();
     if (ownsLock && memory) memory.busy = false;
   }
 }

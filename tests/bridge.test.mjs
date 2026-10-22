@@ -18,8 +18,17 @@ function setup({
   switchJobAfterCommit = false,
   missingPrefix = false,
   requiresSlash = false,
+  count = 4,
+  normalizeAngles = false,
+  wrongIdentity = false,
+  missingSave = false,
+  failOnWrite = 1,
+  legacyStore = false,
 } = {}) {
-  const track = makeDemo(4).track;
+  const track = makeDemo(count).track;
+  track.shapes.forEach((shape) => {
+    shape.id = 1000 + shape.frame;
+  });
   let data = {
     tracks: [track, { ...clone(track), clientID: 2, id: 102 }],
     shapes: [],
@@ -43,33 +52,114 @@ function setup({
   };
   let commits = 0,
     saves = 0,
-    history = { undo: [], redo: [] },
-    undoData = null;
+    writes = 0,
+    overlays = 0,
+    listeners = 0,
+    entries = [],
+    redoEntries = [],
+    history = { undo: [], redo: [] };
   const urls = [];
   const job = {
     id: 7,
     taskId: 3,
     dimension: "3d",
     startFrame: 0,
-    stopFrame: 3,
+    stopFrame: count - 1,
     labels: [{ id: 1, name: "car" }],
     annotations: {
       export: async () => clone(data),
-      get: async () => {
-        if (refreshFailure && commits) throw Error("refresh failed");
-        return data.tracks.map((t) => ({ clientID: t.clientID, lock: locked }));
+      get: async (frame) => {
+        if (refreshFailure && writes) throw Error("refresh failed");
+        return data.tracks
+          .map((t) => {
+            const snapshot = stateAt(t, frame);
+            if (!snapshot) return null;
+            let points = [...snapshot.points],
+              keyframe = t.shapes.some((s) => s.frame === frame);
+            if (normalizeAngles)
+              for (let i = 3; i <= 5; i++) points[i] += 2 * Math.PI;
+            let pointFlag = false,
+              keyFlag = false;
+            return {
+              clientID: t.clientID,
+              serverID: t.id ?? null,
+              frame,
+              lock: locked,
+              objectType: "track",
+              shapeType: "cuboid",
+              isGroundTruth: false,
+              get points() {
+                return [...points];
+              },
+              set points(value) {
+                pointFlag = true;
+                points = [...value];
+              },
+              get keyframe() {
+                return keyframe;
+              },
+              set keyframe(value) {
+                keyFlag = true;
+                keyframe = value;
+              },
+              save: missingSave
+                ? undefined
+                : async () => {
+                    writes++;
+                    const previous = clone(data);
+                    const current = data.tracks.find(
+                      (x) => x.clientID === t.clientID,
+                    );
+                    assert.ok(
+                      current,
+                      "Native save must address an existing identity",
+                    );
+                    let action;
+                    if (pointFlag) {
+                      const old = current.shapes.find((s) => s.frame === frame);
+                      const next = old ? clone(old) : stateAt(current, frame);
+                      next.points = [...points];
+                      current.shapes = current.shapes.filter(
+                        (s) => s.frame !== frame,
+                      );
+                      current.shapes.push(next);
+                      action = "Changed points";
+                    } else if (keyFlag && !keyframe) {
+                      current.shapes = current.shapes.filter(
+                        (s) => s.frame !== frame,
+                      );
+                      action = "Changed keyframe";
+                    } else throw Error("Unexpected mutation or no update flag");
+                    current.shapes.sort((a, b) => a.frame - b.frame);
+                    current.source = ["auto", "semi-auto"].includes(
+                      current.source,
+                    )
+                      ? "semi-auto"
+                      : "manual";
+                    if (wrongIdentity) current.clientID = 3;
+                    if (corrupt)
+                      data.tracks.find((t) => t.clientID === 2).group = 99;
+                    entries.push({
+                      before: previous,
+                      after: clone(data),
+                      item: [action, frame],
+                    });
+                    entries = entries.slice(-32);
+                    redoEntries = [];
+                    history = { undo: entries.map((e) => e.item), redo: [] };
+                    if (switchJobAfterCommit)
+                      state.annotation.job.instance = { id: 99 };
+                    pointFlag = keyFlag = false;
+                    if (commitFailure && writes === failOnWrite)
+                      throw Error("ambiguous native failure");
+                  },
+            };
+          })
+          .filter(Boolean);
       },
-      commit: async (added, removed) => {
+      commit: async () => {
         commits++;
-        undoData = clone(data);
-        data.tracks = data.tracks.filter(
-          (t) => !removed.tracks.some((r) => r.clientID === t.clientID),
-        );
-        data.tracks.push({ ...clone(added.tracks[0]), clientID: 3 });
-        history.undo.push(["Commit annotations", 0]);
-        if (corrupt) data.tracks.find((t) => t.clientID === 2).group = 99;
-        if (switchJobAfterCommit) state.annotation.job.instance = { id: 99 };
-        if (commitFailure) throw Error("ambiguous native failure");
+        throw Error("Replacement Commit is forbidden");
       },
       save: () => {
         saves++;
@@ -78,9 +168,29 @@ function setup({
     },
     actions: {
       get: async () => clone(history),
-      undo: async () => {
-        data = undoData;
-        history = { undo: [], redo: [["Commit annotations", 0]] };
+      undo: async (count = 1) => {
+        for (let i = 0; i < count; i++) {
+          const entry = entries.pop();
+          if (!entry) break;
+          data = clone(entry.before);
+          redoEntries.push(entry);
+        }
+        history = {
+          undo: entries.map((e) => e.item),
+          redo: redoEntries.map((e) => e.item),
+        };
+      },
+      redo: async (count = 1) => {
+        for (let i = 0; i < count; i++) {
+          const entry = redoEntries.pop();
+          if (!entry) break;
+          data = clone(entry.after);
+          entries.push(entry);
+        }
+        history = {
+          undo: entries.map((e) => e.item),
+          redo: redoEntries.map((e) => e.item),
+        };
       },
     },
   };
@@ -136,7 +246,36 @@ function setup({
       };
     },
   };
+  if (legacyStore) {
+    sandbox.legacyStore = store;
+    sandbox.cvatUI.registerComponent = () => {
+      throw Error("Duplicate component registration");
+    };
+    sandbox.document.createElement = () => ({
+      style: {},
+      setAttribute() {},
+      remove() {
+        overlays--;
+      },
+    });
+    sandbox.document.body = {
+      appendChild() {
+        overlays++;
+      },
+    };
+    sandbox.addEventListener = () => {
+      listeners++;
+    };
+    sandbox.removeEventListener = () => {
+      listeners--;
+    };
+  }
   const context = vm.createContext(sandbox);
+  if (legacyStore)
+    vm.runInContext(
+      `globalThis[Symbol.for("cvat.trackRefiner.v1")] = { store: legacyStore, latest: { invalidLegacyCommitUndo: true } };`,
+      context,
+    );
   async function call(request) {
     sandbox.request = request;
     return clone(
@@ -150,6 +289,15 @@ function setup({
     urls,
     get data() {
       return data;
+    },
+    get overlays() {
+      return overlays;
+    },
+    get listeners() {
+      return listeners;
+    },
+    get writes() {
+      return writes;
     },
     get commits() {
       return commits;
@@ -180,7 +328,7 @@ function setup({
     },
   };
 }
-test("snapshot/preflight are read-only; single Apply allows auto-save setting without calling server Save", async () => {
+test("snapshot/preflight are read-only; in-place Apply preserves IDs and allows auto-save setting without calling server Save", async () => {
   const app = setup(),
     p = await app.plan();
   assert.equal(app.commits, 0);
@@ -197,8 +345,15 @@ test("snapshot/preflight are read-only; single Apply allows auto-save setting wi
   assert.equal(r.ok, true);
   assert.equal(r.applied, true);
   assert.equal(r.warning, "");
-  assert.equal(r.clientID, 3);
-  assert.equal(app.commits, 1);
+  assert.equal(r.clientID, 1);
+  assert.equal(r.serverID, 101);
+  assert.equal(r.identityPreserved, true);
+  assert.deepEqual(
+    app.data.tracks[0].shapes.map((s) => s.id),
+    [1000, 1001, 1002, 1003],
+  );
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
   assert.equal(app.saves, 0);
   assert.equal(app.urls.length, 0);
   assert.deepEqual(
@@ -206,7 +361,8 @@ test("snapshot/preflight are read-only; single Apply allows auto-save setting wi
     other,
   );
   assert.equal((await app.call(p)).ok, false);
-  assert.equal(app.commits, 1);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
 });
 test("stale target, missing backup and editing states fail before commit", async () => {
   for (const mode of [
@@ -229,6 +385,7 @@ test("stale target, missing backup and editing states fail before commit", async
       app.state.annotation.canvas.activeControl = "draw_cuboid";
     assert.equal((await app.call(p)).ok, false, mode);
     assert.equal(app.commits, 0, mode);
+    assert.equal(app.writes, 0, mode);
   }
 });
 test("metadata changes, nonfinite geometry and out-of-job synthesized keys are rejected", async () => {
@@ -239,10 +396,14 @@ test("metadata changes, nonfinite geometry and out-of-job synthesized keys are r
     "nan",
     "range",
     "newkey",
+    "track-id",
+    "key-id",
   ]) {
     const app = setup(),
       p = await app.plan();
     if (mode === "label") p.track.label_id = 2;
+    if (mode === "track-id") p.track.id = 999;
+    if (mode === "key-id") p.track.shapes[1].id = 999;
     if (mode === "outside") p.track.shapes[1].outside = true;
     if (mode === "padding") p.track.shapes[1].points[15] = 123;
     if (mode === "nan") p.track.shapes[1].points[0] = NaN;
@@ -254,9 +415,10 @@ test("metadata changes, nonfinite geometry and out-of-job synthesized keys are r
     }
     assert.equal((await app.call(p)).ok, false, mode);
     assert.equal(app.commits, 0, mode);
+    assert.equal(app.writes, 0, mode);
   }
 });
-test("post-commit audit and render failures are reported as APPLIED, never an automatic second commit", async () => {
+test("post-write audit and render failures never retry a mutation", async () => {
   for (const options of [{ corrupt: true }, { refreshFailure: true }]) {
     const app = setup(options),
       p = await app.plan(),
@@ -264,11 +426,12 @@ test("post-commit audit and render failures are reported as APPLIED, never an au
     assert.equal(r.ok, true);
     assert.equal(r.applied, true);
     assert.ok(r.warning);
-    assert.equal(app.commits, 1);
-    assert.equal(r.canUndo, false);
+    assert.equal(app.commits, 0);
+    assert.ok(app.writes > 0);
+    assert.equal(r.canUndo, !options.corrupt);
   }
 });
-test("dedicated Undo uses one native action and refuses newer unrelated edits", async () => {
+test("dedicated Undo restores the entire audited batch and refuses newer unrelated edits", async () => {
   const app = setup(),
     p = await app.plan(),
     before = clone(app.data);
@@ -330,19 +493,22 @@ test("filtered/strided frames are refused before downloading or fitting wrong fr
   assert.match(r.error, /step/);
   assert.equal(app.urls.length, 1);
 });
-test("unknown native commit outcome is not misreported as successful or safe to retry", async () => {
+test("partial native save is not misreported as a completed or safe-to-retry batch", async () => {
   const app = setup({ commitFailure: true }),
     p = await app.plan(),
     r = await app.call(p);
   assert.equal(r.ok, true);
   assert.equal(r.applied, null);
-  assert.equal(r.audited, false);
-  assert.match(r.warning, /chưa xác định/);
-  assert.equal(app.commits, 1);
+  assert.equal(r.audited, true);
+  assert.equal(r.canUndo, true);
+  assert.match(r.warning, /Apply dừng/);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
   assert.equal((await app.call(p)).ok, false);
-  assert.equal(app.commits, 1);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
 });
-test("navigation after a successful commit remains an applied outcome with a warning", async () => {
+test("navigation after a successful native save remains an applied outcome with a warning", async () => {
   const app = setup({ switchJobAfterCommit: true }),
     p = await app.plan(),
     r = await app.call(p);
@@ -350,7 +516,8 @@ test("navigation after a successful commit remains an applied outcome with a war
   assert.equal(r.applied, true);
   assert.equal(r.audited, false);
   assert.ok(r.warning);
-  assert.equal(app.commits, 1);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
 });
 test("API discovery can fall back from reverse-proxy prefix to root /api on 404", async () => {
   const app = setup({ network: true, missingPrefix: true }),
@@ -396,13 +563,14 @@ test("sparse-track draft can add keys while preserving inherited metadata and ra
   const r = await app.call(p);
   assert.equal(r.ok, true, r.error);
   assert.equal(r.warning, "");
-  assert.equal(app.commits, 1);
-  const after = app.data.tracks.find((t) => t.clientID === 3);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
+  const after = app.data.tracks.find((t) => t.clientID === 1);
   assert.equal(after.shapes.length, 4);
   assert.deepEqual(after.shapes[0], p.baseline.shapes[0]);
   assert.deepEqual(after.shapes[1].attributes, []);
 });
-test("reconstruction plus user box reaches the existing audited single native Commit boundary", async () => {
+test("reconstruction plus user box updates the same identity through native states", async () => {
   const { makeReconstructionDemo } = await import(
     "../extension/demo/reconstruction.js"
   );
@@ -440,11 +608,216 @@ test("reconstruction plus user box reaches the existing audited single native Co
   assert.equal(reply.ok, true, reply.error);
   assert.equal(reply.applied, true);
   assert.equal(reply.audited, true);
-  assert.equal(app.commits, 1);
+  assert.equal(app.commits, 0);
+  assert.ok(app.writes > 0);
   assert.equal(app.saves, 0);
   assert.equal(app.urls.length, 0);
   assert.deepEqual(
     app.data.tracks.find((t) => t.clientID === 2),
     other,
   );
+});
+
+test("regression: native Apply/Undo/Redo preserve selected client/server/keyframe IDs and every unrelated object", async () => {
+  const app = setup();
+  app.data.shapes.push({
+    id: 800,
+    clientID: 8,
+    type: "cuboid",
+    points: Array(16).fill(1),
+  });
+  app.data.tags.push({ id: 900, clientID: 9, frame: 0, label_id: 1 });
+  const p = await app.plan(),
+    before = clone(app.data);
+  const r = await app.call(p);
+  assert.equal(r.identityPreserved, true);
+  assert.equal(r.clientID, p.baseline.clientID);
+  assert.equal(r.serverID, p.baseline.id);
+  assert.equal(app.data.tracks.length, before.tracks.length);
+  assert.deepEqual(
+    app.data.tracks.map((t) => [t.clientID, t.id]),
+    before.tracks.map((t) => [t.clientID, t.id]),
+  );
+  assert.equal(
+    app.state.annotation.annotations.activatedStateID,
+    p.baseline.clientID,
+  );
+  const applied = clone(app.data);
+  assert.equal(
+    (await app.call({ op: "undo", context: p.context })).audited,
+    true,
+  );
+  assert.deepEqual(app.data, before);
+  await app.job.actions.redo(1);
+  assert.deepEqual(app.data, applied);
+  assert.equal(app.commits, 0);
+  assert.equal(app.saves, 0);
+  assert.equal(app.urls.length, 0);
+});
+
+test("all native states must be verifiable before any write; missing native save has no Commit fallback", async () => {
+  for (const options of [{ missingSave: true }, { locked: true }]) {
+    const app = setup(options),
+      p = await app.plan(),
+      before = clone(app.data);
+    assert.equal((await app.call(p)).ok, false);
+    assert.equal(app.writes, 0);
+    assert.equal(app.commits, 0);
+    assert.deepEqual(app.data, before);
+  }
+  const app = setup(),
+    p = await app.plan();
+  p.baseline.id = 999;
+  assert.equal((await app.call(p)).ok, false);
+  assert.equal(app.writes, 0);
+});
+
+test("normalized-angle reads do not reject native cuboid frames or change stored pose/padding", async () => {
+  const app = setup({ normalizeAngles: true }),
+    p = await app.plan();
+  const r = await app.call(p);
+  assert.equal(r.audited, true, r.warning);
+  assert.deepEqual(
+    app.data.tracks[0].shapes[1].points.slice(0, 6),
+    p.baseline.shapes[1].points.slice(0, 6),
+  );
+  assert.deepEqual(
+    app.data.tracks[0].shapes[1].points.slice(9),
+    p.baseline.shapes[1].points.slice(9),
+  );
+  assert.equal(r.clientID, 1);
+});
+
+test("ID mutation by an incompatible host is an audit failure, never a successful replacement", async () => {
+  const app = setup({ wrongIdentity: true }),
+    p = await app.plan(),
+    r = await app.call(p);
+  assert.equal(r.audited, false);
+  assert.equal(r.identityPreserved, false);
+  assert.equal(r.canUndo, false);
+  assert.match(r.warning, /Audit/);
+  assert.equal(app.commits, 0);
+});
+
+test("a 60-frame Apply keeps identity; dedicated restore works beyond the 32-action native history", async () => {
+  const app = setup({ count: 60 }),
+    p = await app.plan(),
+    before = clone(app.data);
+  p.range = [0, 59];
+  p.track.shapes.forEach((s) => {
+    s.points[6] = 4.1;
+    s.points[0] += 0.1;
+  });
+  const r = await app.call(p);
+  assert.equal(r.audited, true, r.warning);
+  assert.equal(r.changedFrames, 60);
+  assert.equal((await app.job.actions.get()).undo.length, 32);
+  assert.equal(app.data.tracks[0].clientID, 1);
+  const undo = await app.call({ op: "undo", context: p.context });
+  assert.equal(undo.undone, true, undo.warning);
+  assert.equal(undo.audited, true);
+  assert.match(undo.warning, /nguồn annotation.*semi-auto/);
+  const expected = clone(before);
+  expected.tracks[0].source = "semi-auto";
+  assert.deepEqual(app.data, expected);
+  assert.equal(app.commits, 0);
+});
+
+test("sparse long-batch restore removes only new keys and restores exact original geometry and IDs", async () => {
+  const app = setup({ count: 70 });
+  app.data.tracks[0].shapes = [
+    app.data.tracks[0].shapes[0],
+    app.data.tracks[0].shapes[69],
+  ];
+  const p = await app.plan(),
+    before = clone(app.data);
+  p.range = [0, 69];
+  p.track = clone(p.baseline);
+  p.track.shapes = Array.from({ length: 70 }, (_, frame) => {
+    const s = stateAt(p.baseline, frame);
+    s.points[6] = 4.1;
+    return s;
+  });
+  assert.equal((await app.call(p)).audited, true);
+  assert.equal(app.data.tracks[0].shapes.length, 70);
+  const r = await app.call({ op: "undo", context: p.context });
+  assert.equal(r.undone, true, r.warning);
+  const expected = clone(before);
+  expected.tracks[0].source = "semi-auto";
+  assert.deepEqual(app.data, expected);
+  assert.equal(app.data.tracks[0].id, 101);
+});
+
+test("partial save failures are recoverable through an explicit restore, without retrying Apply", async () => {
+  const app = setup({ count: 8, commitFailure: true, failOnWrite: 3 }),
+    p = await app.plan(),
+    before = clone(app.data);
+  p.range = [0, 7];
+  p.track.shapes.forEach((s) => {
+    s.points[6] = 4.1;
+  });
+  const r = await app.call(p);
+  assert.equal(r.applied, null);
+  assert.equal(r.partial, true);
+  assert.equal(r.audited, true, r.warning);
+  assert.equal(r.canUndo, true);
+  const writes = app.writes;
+  assert.equal((await app.call(p)).ok, false);
+  assert.equal(app.writes, writes);
+  const undo = await app.call({ op: "undo", context: p.context });
+  assert.equal(undo.undone, true, undo.warning);
+  const expected = clone(before);
+  expected.tracks[0].source = "semi-auto";
+  assert.deepEqual(app.data, expected);
+});
+
+test("new boundary keys get their intended points even after adjacent native edits change interpolation", async () => {
+  const app = setup({ count: 10 });
+  app.data.tracks[0].shapes = [
+    app.data.tracks[0].shapes[0],
+    app.data.tracks[0].shapes[9],
+  ];
+  const p = await app.plan();
+  const frames = [3, 6].map((frame) => {
+    const original = stateAt(p.baseline, frame).points,
+      pose = [...original];
+    pose[0] += 0.2;
+    return { frame, original, pose, accepted: true, yaw: 0 };
+  });
+  const d = buildDraft(
+    p.baseline,
+    {
+      applicable: true,
+      size: [4.1, 1.8, 1.5],
+      measuredAxes: [true, true, true],
+      frames,
+    },
+    [3, 6],
+    { size: true, pose: true, jobStart: 0, jobEnd: 9 },
+  );
+  p.track = d.track;
+  p.range = d.range;
+  const r = await app.call(p);
+  assert.equal(r.audited, true, r.warning);
+  for (const f of [2, 7]) {
+    const actual = app.data.tracks[0].shapes.find((s) => s.frame === f);
+    assert.deepEqual(actual.points, stateAt(p.baseline, f).points);
+  }
+});
+
+test("updating from v0.3.0 reuses only the live store, isolates legacy undo and cleans UI locks", async () => {
+  const app = setup({ legacyStore: true });
+  assert.equal((await app.call({ op: "undo" })).ok, false);
+  const p = await app.plan(),
+    before = clone(app.data);
+  const r = await app.call(p);
+  assert.equal(r.identityPreserved, true, r.warning);
+  assert.equal(app.overlays, 0);
+  assert.equal(app.listeners, 0);
+  const u = await app.call({ op: "undo", context: p.context });
+  assert.equal(u.undone, true, u.warning);
+  assert.deepEqual(app.data, before);
+  assert.equal(app.overlays, 0);
+  assert.equal(app.listeners, 0);
+  assert.equal(app.commits, 0);
 });

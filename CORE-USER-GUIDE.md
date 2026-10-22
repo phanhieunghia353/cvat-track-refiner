@@ -1,4 +1,4 @@
-# Dùng lõi dựng hình v0.3.0
+# Dùng lõi dựng hình v0.3.1
 
 Đây là bản thử đầu của lõi độc lập với box. Nó căn và giữ các bề mặt **quan sát được**, chưa nhận dạng thân xe/phụ kiện và chưa hoàn thiện phần bị khuất. Không dùng độ đẹp của hình ghép để thay việc kiểm tra từng frame.
 
@@ -35,8 +35,11 @@ Lõi dựng hình có thể được dùng mà không tạo box.
 3. Xem các hình chiếu và frame riêng. Lõi chưa biết gương có thuộc mục tiêu hay không; người dùng quyết định box cần ôm vùng nào.
 4. Bấm **Tạo đề xuất từ box tôi chỉnh**. Chỉ lúc này mới có draft cho Apply. Chỉnh tiếp bất kỳ giá trị nào sẽ hủy draft trước đó.
 5. Đọc số frame thay đổi/keyframe thêm và số frame nội suy. Kích thước box dùng chung, còn tâm/yaw được biến đổi theo từng frame đã căn. Frame chưa xác định và các khoảng đi qua mẫu bị giữ lại sẽ giữ nguyên hình học.
-6. **Apply vào CVAT** dùng cùng một native Commit, backup và audit các object khác như bản trước. Không tự Save, không gọi API ghi annotation, không yêu cầu reload. Auto save của CVAT vẫn có thể lưu sau Apply; tool không đổi cài đặt này.
-7. Kiểm tra bằng Next; dùng Undo/Redo của CVAT hoặc nút hoàn tác riêng khi chưa có chỉnh sửa mới. Native Commit có thể đổi ID như các bản trước.
+6. **Apply vào CVAT** sửa từng native ObjectState trên track hiện có. Kiểm tra giữ clientID, ID server track và ID keyframe cũ; đồng thời audit các annotation khác. Không tự Save, không gọi API ghi annotation, không yêu cầu reload. Auto save của CVAT vẫn có thể lưu sau Apply; tool không đổi cài đặt này.
+7. Kiểm tra bằng Next. Nút **Hoàn tác Apply gần nhất** của tool trả lại toàn đợt khi snapshot và lịch sử vẫn khớp. Nó dùng native Undo đủ số action nếu còn đầy đủ lịch sử; với đợt dài đã vượt lịch sử CVAT, nó khôi phục points của keyframe cũ và xóa riêng keyframe do Apply thêm. Giữ nguyên track/ID; không import hoặc xóa/tạo lại object.
+8. Ctrl+Z gốc của CVAT có thể chỉ trả lại một frame; không coi đó là hoàn tác toàn đợt. Native Save/Undo/Redo sau thao tác khác có thể làm snapshot không còn khớp, khi đó tool từ chối khôi phục đè.
+9. CVAT có thể đổi `source` từ auto sang semi-auto hoặc file sang manual khi chỉnh. Nếu phải khôi phục bằng points vì lịch sử đã thiếu, hình học/keyframe được trả lại nhưng dấu nguồn đã chỉnh có thể còn; tool báo rõ. Nó không sửa nguồn bằng API riêng hoặc ghi đè cả job.
+10. Nếu Apply lỗi giữa chừng, không bấm Apply lặp. Khi audit xác minh được phần đã thay đổi, tool cho hoàn tác chủ động; nếu audit không khớp thì dừng và giữ backup để kiểm tra.
 
 Box được chọn phải nằm trong giới hạn dịch/xoay và tỷ lệ kích thước của từng frame liên quan. Nếu vượt giới hạn, tool báo rõ frame; không âm thầm cắt bớt giá trị bạn nhập.
 

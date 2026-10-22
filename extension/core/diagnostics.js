@@ -1,6 +1,6 @@
 /** Local-only exports. Ordinary reports omit point coordinates; the explicit
  * diagnostic export contains bounded crops, never full PCDs or auth/context. */
-export function analysisReport(result, version = "0.3.0") {
+export function analysisReport(result, version = "0.3.1") {
   if (result.kind === "reconstruction")
     return {
       version,
@@ -52,7 +52,7 @@ export function analysisReport(result, version = "0.3.0") {
     ),
   };
 }
-export function diagnosticBundle(result, version = "0.3.0") {
+export function diagnosticBundle(result, version = "0.3.1") {
   if (result.kind === "reconstruction")
     return {
       format: "cvat-reconstruction-diagnostic/v1",

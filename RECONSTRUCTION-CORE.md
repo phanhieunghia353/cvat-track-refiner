@@ -70,7 +70,7 @@ Phải định nghĩa rõ đối tượng cần bao: thân xe có/không gương
 
 - Extension MV3, tab binding, adapter CVAT, đọc annotation chưa Save, PCD/LZF parser.
 - Web Worker, giới hạn bộ nhớ, hủy tác vụ, export chẩn đoán và script replay.
-- Preview từng frame, tạo draft, backup trước Apply, native Commit/Undo và audit các object khác.
+- Preview từng frame, tạo draft, backup trước Apply, native ObjectState.save giữ ID, khôi phục cả đợt và audit các object khác.
 
 `filterEvidence()` và `estimateDimensions()` hiện tại là baseline heuristic, không phải lõi dựng hình mới. Đặc biệt không tái dùng cứng việc xóa điểm theo số frame trước khi có căn ghép tin cậy, hoặc dùng biên từng crop làm tâm xe.
 

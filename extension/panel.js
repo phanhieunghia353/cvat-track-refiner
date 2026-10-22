@@ -237,7 +237,7 @@ function renderSession() {
     : `Job ${session.context.jobId} · frame ${session.start}–${session.end}`;
   $("autosave").textContent = demo
     ? "Dữ liệu tổng hợp; Apply bị khóa."
-    : `Auto save: ${session.autoSave === true ? "BẬT — sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra" : session.autoSave === false ? "TẮT — bạn tự Save sau khi kiểm tra" : "chưa xác định — CVAT có thể tự lưu nếu được cấu hình"}. Native Commit có thể đổi ID; Undo/Redo qua CVAT.`;
+    : `Auto save: ${session.autoSave === true ? "BẬT — sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra" : session.autoSave === false ? "TẮT — bạn tự Save sau khi kiểm tra" : "chưa xác định — CVAT có thể tự lưu nếu được cấu hình"}. Giữ ID track; hoàn tác toàn đợt bằng nút của tool.`;
   pickTrack();
   $("status").textContent = "Đã đọc dữ liệu. Phân tích chưa sửa annotation.";
 }
@@ -524,7 +524,7 @@ $("apply").onclick = () =>
       throw Error("Cần phân tích mới.");
     const proposal = draft();
     if (!proposal.changed) throw Error("Không có thay đổi để Apply.");
-    // Invalidate BEFORE sending: even a transport error must not replay a commit.
+    // Invalidate BEFORE sending: even a transport error must not replay a mutation.
     consumed = true;
     canUndo = false;
     controls();
@@ -540,12 +540,13 @@ $("apply").onclick = () =>
     canUndo = reply.canUndo;
     if (reply.applied !== true) {
       show("CHƯA XÁC ĐỊNH KẾT QUẢ APPLY\n" + reply.warning, "error");
-      $("status").textContent =
-        "Đề xuất đã khóa để tránh gửi lặp. Kiểm tra CVAT và backup.";
+      $("status").textContent = reply.canUndo
+        ? "Apply dừng giữa chừng. Có thể dùng Hoàn tác của tool; không Apply lặp."
+        : "Đề xuất đã khóa để tránh gửi lặp. Kiểm tra CVAT và backup.";
       return;
     }
     show(
-      `ĐÃ APPLY VÀO PHIÊN CVAT\nCVAT ID mới: ${reply.clientID ?? "xem sidebar"}\n${reply.audited ? `Đã đối chiếu ${reply.otherTracks} track khác cùng shapes/tags.` : "Chưa xác nhận được dữ liệu sau Apply; kiểm tra cảnh báo."}\n${reply.autoSave === false ? "Tool không gọi Save server. Kiểm tra bằng Next và tự Save khi muốn." : "Auto save đang bật hoặc chưa xác định: CVAT có thể tự lưu."}\n${reply.warning || "Dùng Undo/Redo của CVAT hoặc nút hoàn tác khi chưa sửa tiếp."}`,
+      `ĐÃ APPLY VÀO PHIÊN CVAT\nCVAT ID giữ nguyên: ${reply.identityPreserved ? reply.clientID : "chưa xác minh"}\n${reply.audited ? `Đã đối chiếu ${reply.otherTracks} track khác cùng shapes/tags.` : "Chưa xác nhận được dữ liệu sau Apply; kiểm tra cảnh báo."}\n${reply.autoSave === false ? "Tool không gọi Save server. Kiểm tra bằng Next và tự Save khi muốn." : "Auto save đang bật hoặc chưa xác định: CVAT có thể tự lưu."}\n${reply.warning || "Nút Hoàn tác của tool trả lại toàn đợt. Ctrl+Z của CVAT có thể chỉ trả lại một frame."}`,
       reply.warning ? "error" : "success",
     );
     $("status").textContent =
@@ -557,8 +558,8 @@ $("undo").onclick = () =>
     canUndo = false;
     show(
       r.warning ||
-        "Đã Undo Apply gần nhất trong phiên CVAT. Auto save/Save vẫn thuộc CVAT.",
-      r.warning ? "error" : "success",
+        "Đã hoàn tác toàn bộ hình học/keyframe của lần Apply, giữ nguyên ID. Auto save/Save vẫn thuộc CVAT.",
+      r.warning || !r.undone ? "error" : "success",
     );
   });
 $("backup").onclick = () =>

@@ -4,7 +4,7 @@ v0.3.0 implements the first box-independent reconstruction core. See [RECONSTRUC
 
 ## Reconstruction core implemented in v0.3.0
 
-`reconstruction/core.js` returns `cvat-reconstruction/v1` with reference/gauge, per-frame poses, observed surface samples, diagnostics, tunable config and bounded observations. It does not return `size` or call the old fitter. `box.js` is an optional manual consumer which composes a user-supplied box through trusted poses and reuses the existing draft/Commit boundary.
+`reconstruction/core.js` returns `cvat-reconstruction/v1` with reference/gauge, per-frame poses, observed surface samples, diagnostics, tunable config and bounded observations. It does not return `size` or call the old fitter. `box.js` is an optional manual consumer which composes a user-supplied box through trusted poses and reuses the existing draft/native-state boundary.
 
 - Core cropping uses a bounded reservoir and voxel budget. Neighbor/ground hints are masks, not hard point deletion; raw PCDs are still released. Source point indices refer to the saved crop, not original PCD offsets.
 - Covariance normals use a local radius with bounded neighbors. Weak/non-planar neighborhoods retain their points but do not vote for alignment.
@@ -37,7 +37,7 @@ Same-origin GET PCD → ArrayBuffer transfer → worker parse → bounded object
                         ↓
                   Canvas preview + diagnostics
                         ↓ explicit Apply only
-              fresh preflight → local backup → single native Commit → audit/refresh
+              fresh preflight → local backup → native in-place edits → audit/refresh
 ```
 
 `cvatBridge` is serialized into the page, so it must be self-contained. Do not close over module imports in that function. Store discovery is isolated from fitting; modify this adapter when CVAT internals change. Extension errors must not silently fall back to REST mutations.
@@ -60,13 +60,13 @@ Current geometry scoring is not an amodal learned shape model, visibility ray tr
 
 ## Mutations, IDs and ambiguity
 
-The native Commit removes/replaces only the selected client object and provides one CVAT history action. Client IDs can change. Server IDs assigned while preview is open are adopted; baseline fingerprints ignore serialization IDs but compare content. Preflight captures the latest full export for backup, and an exact second comparison rejects edits between backup and Commit.
+Since v0.3.1, Apply never calls `annotations.commit`, `put`, `import`, or `clear`. It prepares native cuboid ObjectStates for every affected frame, validates frame/geometry/lock/server identity against the exact baseline, rechecks the full snapshot, then sets only `points` and calls each local `ObjectState.save()`. Saving points creates a key when needed. Existing clientID, track server ID and original keyframe IDs are part of both validation and audit; none are stripped. Old versions replaced the object and changed clientID; that path has been removed.
 
-The adapter validates draft metadata, keyframes, point types, geometry limits, visibility and interval before writing. It compares unrelated tracks/shapes/tags exactly after the operation. Target content is compared without IDs. Audit is detection after local mutation, not a guarantee against every host side effect. Auto save can persist after Apply; the extension does not pause it or promise server isolation after Apply.
+Draft metadata, keyframes, geometry limits, visibility and interval are validated before the first edit. After editing, unrelated tracks/shapes/tags and the selected track's IDs/metadata are compared exactly, with only equivalent angles/read noise and CVAT's known native edited-source transition allowed. Audit detects host side effects after mutation; it is not a guarantee that every customized host behaves correctly. Auto save is not disabled and may persist edits; an active Save interrupts further writes. An overlay blocks ordinary user edits during the batch and is always removed.
 
-Panel consumes each proposal before sending it. The bridge also consumes a unique token before Commit. An ambiguous error must lead to re-read/inspection, not automatic retries. No whole-job rollback is attempted. Post-commit refresh failures are distinct from pre-commit validation failures.
+Each token is consumed before editing. A failing save may already have changed that frame: the adapter checks both confirmed and attempted prefixes to identify a recoverable partial batch. It never retries the Apply or performs an automatic rollback. A verified partial batch can be restored by the user. Audit failures block dedicated restore; a render-only failure retains an audited restore record.
 
-Dedicated Undo requires matching history and unchanged exported content since this tool's last Apply, then executes one native history action and audits the result. Use native CVAT Undo/Redo if further edits have occurred. Do not implement Undo by importing a whole snapshot over unrelated work.
+Dedicated restore requires the exact post-Apply snapshot and history. If all native actions remain in the bounded history, it undoes the audited action count and checks the entire original export. Otherwise it restores original keyframe points and removes only newly inserted keys through native states, retaining the track identity. This fallback preserves geometry/key structure but CVAT's edited-source mark can remain; the UI says so. Ctrl+Z is per native action and is not promised to undo a whole long batch. No history freezing/clearing, private-model patching or whole-collection import is used.
 
 ## Resource limits and cancellation
 

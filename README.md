@@ -1,4 +1,4 @@
-# CVAT Track Refiner · Experimental 0.3.0
+# CVAT Track Refiner · Experimental 0.3.1
 
 Extension cho Brave / Chrome / Edge: lõi dựng hình bề mặt LiDAR qua nhiều frame, viewer 3D có truy nguồn quan sát và editor box chung chỉnh tay. Thuật toán chạy trên máy bằng ES modules/Web Worker/Canvas2D; không cần model AI, GPU chuyên dụng, Python hoặc server riêng để sử dụng extension.
 
@@ -10,7 +10,8 @@ Extension cho Brave / Chrome / Edge: lõi dựng hình bề mặt LiDAR qua nhi�
 
 | Phiên bản                                                                    | Trang release                                                                                             | Trạng thái                                                          |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| [v0.3.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.0) | Bản thử hiện tại: lõi bề mặt, viewer 3D, box chung chỉnh tay        |
+| [v0.3.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.1) | Bản sửa Apply giữ nguyên ID track và khôi phục cả đợt               |
+| [v0.3.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.0) | Bản cũ đổi ID khi Apply: lõi bề mặt, viewer 3D, box chung chỉnh tay |
 | [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Lưu bộ fit cũ; kiểm tra box cuối trên từng frame                    |
 | [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Lưu lịch sử; có lọc bằng chứng nhưng thiếu kiểm tra lại sau căn tâm |
 | [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0)                 | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box                 |
@@ -48,12 +49,12 @@ Crop của lõi giữ ngữ cảnh có mask thay vì xóa cứng điểm ít l�
 3. Để mặc định 24 frame mẫu hoặc giảm cho job nặng. Chọn khoảng có nhiều góc nhìn và bấm **Phân tích**.
 4. Xem đám điểm ghép; chọn từng frame ở danh sách hoặc bấm hàng trong bảng để so Top/Side/Front. Cam là pre-label, xanh là đề xuất.
 5. Chọn áp dụng kích thước, tâm/góc, hoặc cả hai. Xem số frame thay đổi và số keyframe thêm.
-6. **Apply vào CVAT** thực hiện một native Commit, không reload. Qua frame kiểm tra; Save/Auto save thuộc cơ chế của CVAT.
-7. Undo/Redo toàn đợt bằng CVAT. Nút Hoàn tác riêng chỉ chạy khi trạng thái và lịch sử còn đúng sau Apply, để tránh undo nhầm sửa đổi mới.
+6. **Apply vào CVAT** sửa native ObjectState trên track cũ, kiểm tra giữ ID và không reload. Qua frame kiểm tra; Save/Auto save thuộc cơ chế của CVAT.
+7. Nút Hoàn tác của tool khôi phục toàn đợt khi snapshot/lịch sử còn khớp. Ctrl+Z của CVAT có thể chỉ trả lại một frame. Với đợt dài vượt lịch sử, hình học/keyframe được khôi phục qua native state; dấu nguồn đã chỉnh của CVAT có thể còn, tool báo rõ.
 
 **Auto save được phép bật.** Sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra bằng mắt. Nếu muốn kiểm tra trước khi lưu, tắt Auto save trong CVAT; tool không tự đổi cài đặt này.
 
-**Native Commit có thể đổi số # trên sidebar.** Undo/Redo và Save sau đó cũng có thể khiến CVAT cấp lại server ID. Không sử dụng nếu quy trình của bạn phụ thuộc tuyệt đối vào ID không thay đổi.
+**Từ v0.3.1, Apply giữ track hiện có.** Không dùng các bản cũ nếu cần giữ ID. Client ID, ID server track và ID keyframe cũ được kiểm tra; keyframe mới chưa có ID server sẽ do CVAT cấp khi Save. Source có thể được native CVAT đánh dấu đã chỉnh.
 
 ## Phạm vi bản đầu
 
@@ -72,10 +73,10 @@ Crop của lõi giữ ngữ cảnh có mask thay vì xóa cứng điểm ít l�
 
 - Ưu tiên `window.cvatUI.registerComponent`; fallback tìm duy nhất Redux Provider. Đây vẫn là adapter vào CVAT; cùng version không bảo đảm host tùy biến tương thích.
 - Đọc cả thay đổi chưa Save bằng `annotations.export()`. Dùng clientID thật của phiên, không đoán từ thứ tự hoặc server ID.
-- Không có API ghi trực tiếp, không gọi `annotations.save/import/clear`. GET frame dùng cùng origin và cookie phiên; không gửi dữ liệu cho server trung gian hoặc model ngoài.
+- Không có API ghi trực tiếp, không gọi `annotations.commit/put/save/import/clear`. GET frame dùng cùng origin và cookie phiên; không gửi dữ liệu cho server trung gian hoặc model ngoài.
 - Nếu API nằm dưới reverse-proxy prefix khác, có ô API base, ví dụ `/api` hoặc `/cvat/api`. Không nhận URL ngoài origin.
-- Trước Apply, target phải khớp baseline; backup đầy đủ annotation hiện tại được lưu trong `chrome.storage.local`. Lỗi quota → không Apply. Kiểm tra lại toàn snapshot ngay trước Commit.
-- Sau Commit so sánh chính xác toàn annotation ngoài target, cùng nội dung target dự kiến (không tính serialization IDs). Nếu audit/refresh lỗi sau Commit, báo **đã Apply kèm cảnh báo**, không tự thử lại hoặc rollback cả job.
+- Trước Apply, target phải khớp baseline; backup đầy đủ annotation hiện tại được lưu trong `chrome.storage.local`. Lỗi quota → không Apply. Kiểm tra lại toàn snapshot ngay trước lần sửa đầu.
+- Sau Apply đối chiếu các ID của target, metadata và toàn annotation ngoài target. Lỗi giữa chừng được báo rõ; không tự Apply lặp hay rollback cả job. Nếu xác minh được phần đã sửa, cho phép người dùng khôi phục chủ động.
 - Backup có thể chứa nhãn chưa Save; có thể tải JSON riêng. Chỉ giữ snapshot mới nhất của mỗi job. Snapshot không phải gói dataset CVAT và chưa có chức năng nhập để khôi phục cả job bằng một nút.
 - Không đưa backup hoặc báo cáo job riêng tư vào Git public. Mã nguồn và demo không chứa annotation/point cloud thật.
 
@@ -106,7 +107,7 @@ Hiện hỗ trợ job có frame liên tiếp; tool kiểm tra metadata và chặ
 Mã ES modules, Canvas2D và Web Worker; không có runtime dependencies hoặc CDN. Comment tiếng Anh, giao diện và hướng dẫn tiếng Việt. Đơn vị và các giả định nằm trong JSDoc. Xem [DESIGN.md](DESIGN.md) và [VALIDATION.md](VALIDATION.md).
 
 ```text
-extension/cvat/           Adapter, native Commit và ranh giới backup
+extension/cvat/           Adapter, native ObjectState và ranh giới backup
 extension/core/           Hệ tọa độ, nội suy, cấu hình và tạo draft
 extension/pointcloud/     PCD/LZF, crop và lấy mẫu
 extension/fitting/        Bộ tinh chỉnh hình học thuần
