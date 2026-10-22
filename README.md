@@ -4,6 +4,15 @@ Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw
 
 **Đây là bản thử thuật toán hình học. Chưa kiểm chứng chất lượng trên job CVAT 2.77.1 thực tế của người dùng.** Các kiểm thử tự động và demo chỉ chứng minh các trường hợp đã kiểm tra, không bảo đảm mọi pre-label đều được cải thiện.
 
+## Bản tải trên GitHub
+
+| Phiên bản | Trang release | Trạng thái |
+| --- | --- | --- |
+| [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Bản thử hiện tại, có lọc bằng chứng theo thời gian |
+| [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0) | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box |
+
+Cả hai được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` để cài extension; ZIP `source` gồm mã nguồn và tests. Gói tự động “Source code” do GitHub tạo từ tag có cấu trúc repository, khác gói extension đã đóng sẵn.
+
 ## Cài đặt
 
 1. Giải nén gói extension vào thư mục ổn định.
