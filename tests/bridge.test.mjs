@@ -402,3 +402,49 @@ test("sparse-track draft can add keys while preserving inherited metadata and ra
   assert.deepEqual(after.shapes[0], p.baseline.shapes[0]);
   assert.deepEqual(after.shapes[1].attributes, []);
 });
+test("reconstruction plus user box reaches the existing audited single native Commit boundary", async () => {
+  const { makeReconstructionDemo } = await import(
+    "../extension/demo/reconstruction.js"
+  );
+  const { reconstruct } = await import("../extension/reconstruction/core.js");
+  const { manualBoxProposal } = await import(
+    "../extension/reconstruction/box.js"
+  );
+  const app = setup(),
+    d = makeReconstructionDemo(4);
+  app.data.tracks[0] = d.track;
+  const other = clone(app.data.tracks[1]),
+    snap = await app.call({ op: "snapshot" });
+  const r = await reconstruct(d.frames, { referenceFrame: 0 });
+  const proposal = manualBoxProposal(
+      r,
+      [0, 0, 0, 0, 0, 0, 4.7, 1.9, 1.65, 0, 0, 0, 0, 0, 0, 0],
+    ),
+    draft = buildDraft(d.track, proposal, [0, 3], { size: true, pose: true });
+  assert.equal(app.commits, 0);
+  const pre = await app.call({
+    op: "preflight",
+    context: snap.context,
+    baseline: d.track,
+  });
+  const reply = await app.call({
+    op: "apply",
+    context: snap.context,
+    baseline: d.track,
+    track: draft.track,
+    range: [0, 3],
+    backup: pre.before,
+    backupStored: true,
+    token: randomUUID(),
+  });
+  assert.equal(reply.ok, true, reply.error);
+  assert.equal(reply.applied, true);
+  assert.equal(reply.audited, true);
+  assert.equal(app.commits, 1);
+  assert.equal(app.saves, 0);
+  assert.equal(app.urls.length, 0);
+  assert.deepEqual(
+    app.data.tracks.find((t) => t.clientID === 2),
+    other,
+  );
+});

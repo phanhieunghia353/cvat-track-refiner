@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 · 22 October 2026
+
+- Introduce `cvat-reconstruction/v1`: observed surface samples, per-frame poses, gauge, provenance and internal validation, independent of the box fitter.
+- Retain bounded crop context with masks. Estimate covariance normals; bootstrap a connected graph from fixed/pre-label anchors, then use bounded robust point-to-plane alignment. Recheck final information rank, held-out support and graph reachability after removing failed frames.
+- Keep single-frame regions, per-frame surface votes and spread; report weak/disconnected observations. No semantic body/mirror classification, hidden-surface completion or automatic box size in core mode.
+- Add CPU Canvas 3D orbit/picking, orthographic views, frame visibility/exclusion and reference/pin controls.
+- Add optional numeric common-box editing with explicit proposal creation. Project by rigid per-frame transforms through the existing backup/native Commit/Undo/audit boundary. Unknown samples stop propagation; unsampled intervals remain interpolation.
+- Add versioned local snapshots/diagnostics and CLI replay. Keep the legacy fitter as a separate comparison mode. No runtime dependencies, GPU requirement, host-specific paths or broader extension permissions.
+- 66 tests passed, including full core-to-native-Commit mocks. Browser verified with synthetic data; favorable synthetic alignment is not a real-cloud accuracy guarantee. This is the first reconstruction workbench, not a complete amodal vehicle model.
+
 ## 0.2.1 · 22 October 2026
 
 - Revalidate actual per-frame boxes after final recentering, checking newly excluded original-covered trusted points and leave-one-out registration loss/support.

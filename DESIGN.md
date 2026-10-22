@@ -1,5 +1,23 @@
 # Architecture and extension points
 
+v0.3.0 implements the first box-independent reconstruction core. See [RECONSTRUCTION-CORE.md](RECONSTRUCTION-CORE.md) for the broader target and [CORE-USER-GUIDE.md](CORE-USER-GUIDE.md) for actual behavior. The prior v0.2.1 fitter remains a separate comparison mode.
+
+## Reconstruction core implemented in v0.3.0
+
+`reconstruction/core.js` returns `cvat-reconstruction/v1` with reference/gauge, per-frame poses, observed surface samples, diagnostics, tunable config and bounded observations. It does not return `size` or call the old fitter. `box.js` is an optional manual consumer which composes a user-supplied box through trusted poses and reuses the existing draft/Commit boundary.
+
+- Core cropping uses a bounded reservoir and voxel budget. Neighbor/ground hints are masks, not hard point deletion; raw PCDs are still released. Source point indices refer to the saved crop, not original PCD offsets.
+- Covariance normals use a local radius with bounded neighbors. Weak/non-planar neighborhoods retain their points but do not vote for alignment.
+- A fixed pre-label reference defines the canonical gauge. Bootstrap registration grows from that reference/user-pinned anchors; unknown islands cannot mutually justify joining the model. Outer rounds use frozen poses and leave-one-frame-out targets from the connected set.
+- The optimizer uses point-to-plane residuals, Huber weights, trimming, bounded Gauss-Newton updates and rank of the scaled 4-DOF normal matrix. Damping does not turn missing constraints into evidence. It optimizes local xyz/yaw only, not full SE(3), and remains sensitive to initialization/outliers.
+- Source indices divisible by five are held out of point fitting. Final support/residual are tested on these disjoint source points. Normals come from the same scan, so this is internal validation, not an independent accuracy benchmark.
+- Fusion stores equal-per-frame voxel centroids, averaged normals where available, frame IDs, spread and observed-only roles. A one-frame region survives. Roles remain `unknown` or masked `context`; there is no semantic vehicle/body/mirror classifier or inferred mesh.
+- Viewer uses CPU Canvas projection, source inspection, orthographic views and optional context. Hidden frames recompute display centroids without changing registration. Excluding/repinning/changing the reference rebuilds from retained crops and invalidates any manual-box draft.
+- The common-box editor begins from reference pre-label dimensions, never point extents. Numeric xyz/yaw/LWH edits are local; a separate button creates a proposal. Unknown samples retain full original geometry and block propagation; intervening unsampled frames are marked as interpolated. Full pose/scale limits are validated before drafting.
+- Snapshot/diagnostic exports carry bounded geometry and review state, with no credentials/job URL. CLI replay supports both the new formats and legacy crop diagnostics. UI import and 3D drag handles are not implemented.
+
+This is an observed-surface workbench and baseline local registration core, not a complete amodal vehicle reconstruction system. Numerical held-out residual and rank are not semantic correctness or calibrated uncertainty.
+
 ## Coordinate and data contracts
 
 All lengths are metres and all angles radians. CVAT points have 16 values: center xyz, XYZ Euler roll/pitch/yaw, L/W/H, then unchanged padding. `geometry.js` applies the full XYZ matrix for transforms; the optimizer only adjusts yaw. Never derive heading from which end faces the sensor, or use sensor-relative displacement as world velocity without ego-motion compensation.

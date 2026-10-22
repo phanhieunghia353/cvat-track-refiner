@@ -96,3 +96,34 @@ test("PCD/crop/worker pipeline keeps a near-correct vehicle size despite exterio
     await w.terminate();
   }
 });
+test("worker runs core PCD/crop/surface pipeline without invoking the box estimator", async () => {
+  const { makeReconstructionDemo } = await import(
+    "../extension/demo/reconstruction.js"
+  );
+  const { w, call } = await start();
+  try {
+    const d = makeReconstructionDemo(4);
+    await call("init", {
+      mode: "core",
+      track: d.track,
+      config: {},
+      others: [],
+    });
+    for (const f of d.frames) {
+      const buffer = pcd(f.xyz);
+      await call("ingest", { frame: f.frame, buffer }, [buffer]);
+    }
+    const r = await call("analyze", { options: { referenceFrame: 0 } });
+    assert.equal(r.kind, "reconstruction");
+    assert.ok(!("size" in r));
+    assert.ok(r.diagnostics.trusted >= 3);
+    assert.ok(r.surfaces.length > 0);
+    for (const f of r.observations) {
+      assert.equal(f.stats.coreCrop, true);
+      assert.ok(f.xyz.length / 3 <= 1800);
+      assert.equal(f.masks.length, f.xyz.length / 3);
+    }
+  } finally {
+    await w.terminate();
+  }
+});

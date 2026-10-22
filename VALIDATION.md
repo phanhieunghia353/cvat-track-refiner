@@ -2,9 +2,9 @@
 
 ## Automated checks
 
-53 tests passed with Node.js using `node scripts/test.mjs`:
+66 tests passed with Node.js using `node scripts/test.mjs`:
 
-- 13 adapter tests: read-only snapshot/preflight, unsaved unrelated edits, Auto save allowed, exact off-target audit, baseline and context conflicts, locked/saving/drawing/review states, metadata/geometry validation, native Undo, post-commit refresh failure, ambiguous Commit error, navigation after Commit, API prefix/trailing-slash discovery without following redirects, filtered-frame rejection and adding keys from a sparse-track draft.
+- 14 adapter tests: read-only snapshot/preflight, unsaved unrelated edits, Auto save allowed, exact off-target audit, baseline and context conflicts, locked/saving/drawing/review states, metadata/geometry validation, native Undo, post-commit refresh failure, ambiguous Commit error, navigation after Commit, API prefix/trailing-slash discovery without following redirects, filtered-frame rejection and adding keys from a sparse-track draft; core → user common box → native Commit with unrelated-track preservation and no server Save.
 - 7 geometry/draft tests: XYZ transforms, angular wrap, mutable-attribute inheritance, frame sampling, unsupported cuboids, range boundaries and outside frames, unmeasured dimensions and rejected-sample interpolation.
 - 6 fitting/crop tests: undersized synthetic cuboid, center/yaw refinement, empty/ambiguous inputs, partial-side observability, search expansion, known neighbors, crop boundaries, bounded reservoir sampling and configuration limits.
 - 5 PCD tests: ASCII, binary AoS, binary_compressed SoA, LZF overlap, invalid references, truncation, HTML responses, nonfinite returns and allocation limits.
@@ -12,13 +12,23 @@
 - 6 temporal-evidence tests: distinct-frame votes, transient exterior clutter, persistent clutter attached through a low bridge, real surfaces outside an undersized box, unsafe voting crops and insufficient overlapping evidence.
 - 6 final-box/diagnostic tests: lateral-shift plus shrink regression; exact final geometry for every accepted fixture sample; sparse held-frame pinning and size/pose interpolation boundaries; option-specific refusals; crop export/replay with no session credentials.
 - 4 preview tests: accepted-only fusion, optional gray rejected layers, real anchor offsets and independent size/pose toggles.
-- 3 worker tests: actual worker-thread PCD → crop → fit pipeline, transferable buffers, parse failure and termination during analysis; clutter fixture through the complete PCD/crop/fit pipeline.
+- 4 worker tests: actual worker-thread PCD → crop → fit pipeline, transferable buffers, parse failure and termination during analysis; clutter fixture through the complete PCD/crop/fit pipeline; new core PCD/crop/surface branch without a box estimator.
+
+- 11 reconstruction tests: fixed-gauge jitter recovery, size invariance, one-plane degeneracy, disconnected islands, exclusion without data loss, rigid common-box projection, replay/privacy, bounded contextual crop, invalid resource settings, eigensolver reconstruction and hidden-frame provenance.
 
 The mocked adapter forbids server Save and unexpected network access. Its commits are in-memory mocks; these tests do not certify native CVAT history internals on a hosted instance.
 
 All extension JavaScript modules passed syntax checks. Source is formatted with Prettier 3.6.2; formatting is a developer tool, not an extension runtime dependency.
 
-## Controlled synthetic case
+## Reconstruction-core controlled case (v0.3.0)
+
+`node scripts/validate-reconstruction.mjs` reproduces `reconstruction-validation.json`. Eight synthetic scans share overlapping curved body/roof/end surfaces, with a fixed known frame 0 and jittered pre-label poses. They are favorable observations, not scans of a real car. The remaining seven frame poses have mean center error **0.1074 → 0.00988 m**, mean absolute yaw error **1.2588 → 0.0321°**. All eight remain connected, with 2852 surface cells, including 278 cells observed in one frame only. Changing the label dimensions on these same observations does not alter the reconstructed poses/surfaces.
+
+The core never calls `estimateDimensions` and returns no automatic box size. A single plane and disconnected observations remain uncertain. Masks are contextual hints and one-frame surface observations survive. This establishes the tested cases only; it does not measure real-host accuracy, semantic body/mirror separation, physical surface error or global registration robustness.
+
+The in-app browser ran the actual worker and CPU Canvas viewer: provenance picking, frame exclusion/reinclusion, reference change, local numeric common-box editing, manual proposal creation, and legacy mode. Apply stays disabled in demo. The mock adapter also ran the real core/manual-box draft through its audited native Commit path. Live hosted CVAT/Brave behavior has not been certified.
+
+## Controlled synthetic case (legacy fitter)
 
 `extension/demo/generate.js` uses deterministic seed 72 and complementary surfaces across 12 frames. Full report is in `demo-validation.json` in the source package.
 

@@ -9,9 +9,12 @@
   <body>
     <header>
       <div>
-        <span class="eyebrow">CVAT TRACK REFINER · 0.2.1 THỬ NGHIỆM</span>
-        <h1>Tinh chỉnh box bằng nhiều frame</h1>
-        <p>Xe và vật cứng · xử lý trên máy · xem đề xuất trước khi Apply</p>
+        <span class="eyebrow">CVAT TRACK REFINER · 0.3.0 THỬ NGHIỆM</span>
+        <h1>Dựng hình xe qua nhiều frame</h1>
+        <p>
+          Lõi bề mặt · truy nguồn quan sát · box chung chỉnh tay · xử lý trên
+          máy
+        </p>
       </div>
       <div>
         <button id="demo">Thử dữ liệu mẫu</button>
@@ -26,6 +29,12 @@
           >Track
           <select id="track">
             <option value="">Chưa đọc dữ liệu</option>
+          </select></label
+        >
+        <label
+          >Chế độ<select id="mode">
+            <option value="core">Lõi dựng hình + box chung</option>
+            <option value="legacy">Bộ fit box cũ (đối chiếu)</option>
           </select></label
         >
         <div class="pair">
@@ -85,14 +94,79 @@
         </div>
         <progress id="progress" hidden></progress>
         <p id="status" role="status" aria-live="polite">Chưa sửa annotation.</p>
+        <div id="coreEditor" hidden>
+          <p class="notice">
+            Dựng hình không cần box đầu ra. Bề mặt thân xe, gương và nền chưa tự
+            phân loại.
+          </p>
+          <details>
+            <summary>Box chung chỉnh tay (tùy chọn)</summary>
+            <p class="footnote">
+              Giá trị ban đầu lấy từ pre-label của mốc, không phải kích thước đo
+              từ rìa điểm.
+            </p>
+            <label class="check"
+              ><input id="showCommonBox" type="checkbox" />Hiện box chung</label
+            >
+            <div class="pair">
+              <label
+                >Tâm X (m)<input
+                  id="commonX"
+                  type="number"
+                  step="0.02"
+                  value="0" /></label
+              ><label
+                >Tâm Y (m)<input
+                  id="commonY"
+                  type="number"
+                  step="0.02"
+                  value="0"
+              /></label>
+            </div>
+            <div class="pair">
+              <label
+                >Tâm Z (m)<input
+                  id="commonZ"
+                  type="number"
+                  step="0.02"
+                  value="0" /></label
+              ><label
+                >Yaw (°)<input
+                  id="commonYaw"
+                  type="number"
+                  step="0.5"
+                  value="0"
+              /></label>
+            </div>
+            <label
+              >Dài (m)<input
+                id="commonL"
+                type="number"
+                min="0.1"
+                step="0.02" /></label
+            ><label
+              >Rộng (m)<input
+                id="commonW"
+                type="number"
+                min="0.1"
+                step="0.02" /></label
+            ><label
+              >Cao (m)<input id="commonH" type="number" min="0.1" step="0.02"
+            /></label>
+            <button id="useCommonBox">Tạo đề xuất từ box tôi chỉnh</button>
+          </details>
+          <button id="snapshot">Tải snapshot dựng hình</button>
+        </div>
         <div class="apply-box">
-          <label class="check"
-            ><input id="useSize" type="checkbox" checked />Áp dụng kích thước đo
-            được</label
-          ><label class="check"
-            ><input id="usePose" type="checkbox" checked />Áp dụng tâm và góc đề
-            xuất</label
-          >
+          <div id="legacyOptions">
+            <label class="check"
+              ><input id="useSize" type="checkbox" checked />Áp dụng kích thước
+              đo được</label
+            ><label class="check"
+              ><input id="usePose" type="checkbox" checked />Áp dụng tâm và góc
+              đề xuất</label
+            >
+          </div>
           <p id="draft">Phân tích để có đề xuất.</p>
           <button id="apply" class="primary" disabled>3 · Apply vào CVAT</button
           ><button id="undo" disabled>Hoàn tác Apply gần nhất</button>
@@ -116,16 +190,60 @@
               <option value="fused">Ghép nhiều frame</option>
             </select>
           </div>
-          <span><i class="old"></i>Pre-label <i class="new"></i>Đề xuất</span>
+          <span id="legendLegacy"
+            ><i class="old"></i>Pre-label <i class="new"></i>Đề xuất</span
+          >
         </div>
         <label class="check"
-          ><input id="showRejected" type="checkbox" />Hiện điểm bị loại
-          (xám)</label
+          ><input id="showRejected" type="checkbox" /><span id="rejectedText"
+            >Hiện điểm ngữ cảnh (xám)</span
+          ></label
         >
         <p id="viewHint">
           Chọn một frame để so vị trí/góc; chế độ ghép dùng để so hình dạng và
           kích thước.
         </p>
+        <div id="coreView" hidden>
+          <div class="viewbar">
+            <label
+              >Màu theo<select id="colorBy">
+                <option value="support">Số frame hỗ trợ</option>
+                <option value="frames">Nguồn frame</option>
+                <option value="spread">Độ phân tán</option>
+              </select></label
+            ><button id="resetOrbit">Đặt lại góc nhìn</button>
+          </div>
+          <canvas id="orbit" aria-label="Hình ghép 3D" tabindex="0"></canvas>
+          <div class="pair">
+            <label
+              >Góc ngang<input
+                id="orbitYaw"
+                type="range"
+                min="-180"
+                max="180"
+                value="-37" /></label
+            ><label
+              >Góc cao<input
+                id="orbitPitch"
+                type="range"
+                min="-80"
+                max="80"
+                value="29"
+            /></label>
+          </div>
+          <p class="footnote">
+            Checkbox trong bảng chỉ ẩn hiển thị. Nút Loại frame sẽ dựng lại kết
+            quả. Vàng: một frame; xanh: nhiều frame (ở chế độ màu số frame).
+          </p>
+          <p id="surfaceInfo" class="footnote">Bấm điểm để xem nguồn frame.</p>
+          <div class="viewbar">
+            <button id="excludeFrame" disabled>
+              Loại / nhận lại frame chọn</button
+            ><button id="anchorFrame" disabled>
+              Ghim / bỏ ghim theo pre-label</button
+            ><button id="referenceFrame" disabled>Chọn làm mốc</button>
+          </div>
+        </div>
         <div class="canvases">
           <canvas aria-label="Top view"></canvas
           ><canvas aria-label="Side view"></canvas
@@ -136,7 +254,7 @@
         </div>
         <div class="tablewrap">
           <table>
-            <thead>
+            <thead id="columns">
               <tr>
                 <th>Frame</th>
                 <th>Điểm giữ/tổng</th>
@@ -149,9 +267,9 @@
           </table>
         </div>
         <p class="footnote">
-          Bản đầu là thuật toán hình học, không phải model AI. Chỉ báo hỗ trợ
-          không phải xác suất đúng. Có thể thêm nhiều keyframe; không tự sửa
-          visibility, class hoặc attribute.
+          4/4: hình học hỗ trợ ba hướng dịch và yaw; không phải xác suất đúng.
+          Lõi dùng bề mặt quan sát, chưa nhận dạng thân xe bằng AI. Có thể thêm
+          nhiều keyframe; không tự sửa visibility, class hoặc attribute.
         </p>
       </section>
     </main>

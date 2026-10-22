@@ -17,7 +17,7 @@ def write_zip(output, entries):
             info.external_attr = 0o100644 << 16
             archive.writestr(info, path.read_bytes())
 
-documents = ['README.md', 'DESIGN.md', 'VALIDATION.md', 'CHANGELOG.md', 'LICENSE', 'NOTICE.md', 'THIRD-PARTY-LICENSES.txt']
+documents = ['README.md', 'DESIGN.md', 'VALIDATION.md', 'CHANGELOG.md', 'RECONSTRUCTION-CORE.md', 'CORE-USER-GUIDE.md', 'LICENSE', 'NOTICE.md', 'THIRD-PARTY-LICENSES.txt']
 extension_entries = [(p, 'cvat-track-refiner/' + p.relative_to(ROOT / 'extension').as_posix())
                      for p in (ROOT / 'extension').rglob('*') if p.is_file()]
 extension_entries += [(ROOT / name, 'cvat-track-refiner/' + name) for name in documents]

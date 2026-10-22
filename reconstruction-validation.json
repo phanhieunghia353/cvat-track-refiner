@@ -1,0 +1,14 @@
+{
+  "version": "0.3.0",
+  "fixture": "Deterministic curved body with overlapping surfaces, fixed known reference and per-frame pose jitter",
+  "frames": 8,
+  "trusted": 8,
+  "reference": 0,
+  "meanCenterErrorBeforeMetres": 0.10743117769969367,
+  "meanCenterErrorAfterMetres": 0.00987837449179661,
+  "meanYawErrorBeforeDegrees": 1.2588408074633222,
+  "meanYawErrorAfterDegrees": 0.032055223493737565,
+  "surfaceCells": 2852,
+  "singleFrameCells": 278,
+  "limitations": "Synthetic favorable overlap, not measured real-cloud accuracy; observed points only, no semantic body/mirror classification."
+}

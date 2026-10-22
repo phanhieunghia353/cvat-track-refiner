@@ -1,6 +1,8 @@
-# CVAT Track Refiner · Experimental 0.2.1
+# CVAT Track Refiner · Experimental 0.3.0
 
-Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw** của cuboid track LiDAR bằng các quan sát nhiều frame. Thuật toán chạy trên máy, có xem trước, backup trước Apply và Undo qua CVAT. Không cần model AI, GPU, Python hay server riêng để sử dụng extension.
+Extension cho Brave / Chrome / Edge: lõi dựng hình bề mặt LiDAR qua nhiều frame, viewer 3D có truy nguồn quan sát và editor box chung chỉnh tay. Thuật toán chạy trên máy bằng ES modules/Web Worker/Canvas2D; không cần model AI, GPU chuyên dụng, Python hoặc server riêng để sử dụng extension.
+
+**v0.3.0 là mốc đầu của lõi mới, chưa phải hệ thống tự nhận dạng hoàn chỉnh thân xe.** Bề mặt được giữ như các mẫu có nguồn frame; gương/phụ kiện và phần khuất vẫn có thể mơ hồ. [Hướng dẫn lõi và box chung](CORE-USER-GUIDE.md) · [Thiết kế đích và phạm vi đã có](RECONSTRUCTION-CORE.md).
 
 **Đây là bản thử thuật toán hình học. Chưa kiểm chứng chất lượng trên job CVAT 2.77.1 thực tế của người dùng.** Các kiểm thử tự động và demo chỉ chứng minh các trường hợp đã kiểm tra, không bảo đảm mọi pre-label đều được cải thiện.
 
@@ -8,11 +10,12 @@ Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw
 
 | Phiên bản                                                                    | Trang release                                                                                             | Trạng thái                                                          |
 | ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Bản thử hiện tại; kiểm tra box cuối trên từng frame                 |
+| [v0.3.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.0) | Bản thử hiện tại: lõi bề mặt, viewer 3D, box chung chỉnh tay        |
+| [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Lưu bộ fit cũ; kiểm tra box cuối trên từng frame                    |
 | [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Lưu lịch sử; có lọc bằng chứng nhưng thiếu kiểm tra lại sau căn tâm |
 | [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0)                 | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box                 |
 
-Cả hai được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` để cài extension; ZIP `source` gồm mã nguồn và tests. Gói tự động “Source code” do GitHub tạo từ tag có cấu trúc repository, khác gói extension đã đóng sẵn.
+Các bản được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` để cài extension; ZIP `source` gồm mã nguồn và tests. Gói tự động “Source code” do GitHub tạo từ tag có cấu trúc repository, khác gói extension đã đóng sẵn.
 
 ## Cài đặt
 
@@ -26,11 +29,19 @@ Không phải nhập hostname hoặc token để cài. Quyền `activeTab`, `scr
 
 ## Thử không dùng dữ liệu thật
 
-Bấm **Thử dữ liệu mẫu** → **Phân tích**. Mẫu là một vật cứng tổng hợp có box bị nhỏ, lệch tâm và góc, với nhiều mặt nhìn bổ sung. Apply luôn bị khóa trong chế độ mẫu. Màu điểm phân biệt frame, không phải xác suất đúng.
+Ở chế độ lõi mặc định, **Thử dữ liệu mẫu** tạo thân cong có pre-label bị jitter và mốc frame 0. Ở chế độ bộ fit cũ, mẫu là một vật cứng tổng hợp có box bị nhỏ, lệch tâm và góc, với nhiều mặt nhìn bổ sung. Apply luôn bị khóa trong chế độ mẫu. Màu điểm phân biệt frame, không phải xác suất đúng.
 
 Bấm **Mẫu có cụm điểm ngoài** để thử pre-label gần đúng với nhiễu ở frame 8. Sau phân tích, chọn frame 8 và bật **Hiện điểm bị loại (xám)**: màu xám là điểm không dùng để fit, các màu khác là điểm giữ lại. Đây là phản ví dụ tổng hợp cho lỗi box bị kéo theo cụm ngoài, không phải bản dựng lại scan riêng của người dùng.
 
-## Dùng với CVAT
+## Lõi dựng hình mặc định
+
+Chọn **Lõi dựng hình + box chung** → Phân tích. Xem hình 3D, nguồn frame, sai lệch kiểm tra và những tư thế chưa xác định. Bật/tắt hiển thị frame hoặc dựng lại sau khi loại/ghim/chọn mốc. Lõi không gọi bộ ước lượng kích thước; thay đổi kích thước pre-label trên cùng quan sát không làm thay kết quả căn bề mặt.
+
+Nếu cần box, mở editor tùy chọn, chỉnh box trong hệ chung rồi bấm **Tạo đề xuất từ box tôi chỉnh**. Box được chiếu qua tư thế từng frame; mẫu chưa xác định chặn cả kích thước/tư thế truyền qua. Chỉ Apply theo thao tác người dùng. Mặc định không sinh box từ rìa điểm. Bộ fit trước đây vẫn nằm trong chế độ **Bộ fit box cũ (đối chiếu)**.
+
+Crop của lõi giữ ngữ cảnh có mask thay vì xóa cứng điểm ít lặp lại trước căn ghép. Tải chẩn đoán/snapshot để tái chạy cục bộ; không upload dữ liệu thật trong quá trình phát triển. Xem [CORE-USER-GUIDE.md](CORE-USER-GUIDE.md) về giới hạn anchor, phần khuất, nội suy và việc Auto save vẫn thuộc CVAT.
+
+## Dùng với CVAT (bộ fit cũ)
 
 1. Chọn object trong CVAT, kết thúc thao tác kéo/nhập đang thực hiện; chưa cần Save.
 2. Mở tool → **Đọc job / object đang chọn**. Kiểm tra CVAT ID và khoảng frame.

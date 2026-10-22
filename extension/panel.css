@@ -270,3 +270,27 @@ select:focus-visible {
     max-width: 240px;
   }
 }
+
+[hidden] {
+  display: none !important;
+}
+#orbit {
+  height: 360px;
+  touch-action: none;
+  cursor: grab;
+  margin: 12px 0;
+}
+#coreEditor {
+  display: grid;
+  gap: 10px;
+}
+#coreView {
+  margin-bottom: 16px;
+}
+#coreView .viewbar {
+  flex-wrap: wrap;
+}
+#coreView .viewbar label {
+  flex-direction: row;
+  align-items: center;
+}

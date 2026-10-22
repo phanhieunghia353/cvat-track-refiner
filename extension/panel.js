@@ -1,3 +1,6 @@
+import { CorePanel } from "./ui/core-panel.js";
+import { makeReconstructionDemo } from "./demo/reconstruction.js";
+import { reconstructionSnapshot } from "./core/diagnostics.js";
 import { cvatBridge } from "./cvat/bridge.js";
 import { validateTrack, clone, sampleFrames } from "./core/geometry.js";
 import { settings } from "./core/config.js";
@@ -23,13 +26,40 @@ let session = null,
   consumed = true,
   backup = null,
   canUndo = false;
-const canvases = [...document.querySelectorAll("canvas")];
+const canvases = [...document.querySelectorAll(".canvases canvas")];
+const corePanel = new CorePanel($, canvases, {
+  changed: () => {
+    consumed = true;
+    renderDraft();
+    controls();
+  },
+  ready: () => {
+    consumed = false;
+    renderDraft();
+    controls();
+  },
+  error: (message) => show(message, "error"),
+  rebuild: (options) => run(() => rebuildCore(options)),
+});
+const isCore = () => result?.kind === "reconstruction";
+const activeProposal = () => (isCore() ? corePanel.proposal : result);
+function modeUI() {
+  const core = $("mode").value === "core";
+  $("legacyOptions").hidden = core;
+  $("legendLegacy").hidden = core;
+  $("coreView").hidden = !isCore();
+  $("coreEditor").hidden = !isCore();
+  $("rejectedText").textContent = core
+    ? "Hiện điểm ngữ cảnh (xám)"
+    : "Hiện điểm bị loại (xám)";
+}
 function show(text, type = "") {
   $("summary").textContent = text;
   $("summary").className = "summary " + type;
 }
 function controls() {
   for (const id of [
+    "mode",
     "read",
     "demo",
     "demoGhost",
@@ -50,13 +80,29 @@ function controls() {
   $("apply").disabled =
     busy ||
     !!demo ||
-    !result?.applicable ||
+    !activeProposal()?.applicable ||
     consumed ||
-    !($("useSize").checked || $("usePose").checked);
+    (!isCore() && !($("useSize").checked || $("usePose").checked));
   $("undo").disabled = busy || !!demo || !canUndo;
   $("backup").disabled = !backup;
   $("report").disabled = !result;
   $("diagnostic").disabled = !result;
+  for (const id of [
+    "snapshot",
+    "useCommonBox",
+    "commonX",
+    "commonY",
+    "commonZ",
+    "commonYaw",
+    "commonL",
+    "commonW",
+    "commonH",
+    "showCommonBox",
+  ])
+    $(id).disabled = busy || !isCore();
+  for (const id of ["excludeFrame", "anchorFrame", "referenceFrame"])
+    $(id).disabled = busy || !isCore() || $("view").value === "fused";
+  modeUI();
 }
 async function run(action) {
   if (busy) return;
@@ -105,6 +151,17 @@ function newWorker() {
   });
   worker.onmessage = ({ data }) => {
     if (data.progress) {
+      if (
+        ["normals", "bootstrap", "registration"].includes(data.progress.stage)
+      ) {
+        $("status").textContent =
+          data.progress.stage === "normals"
+            ? `Ước lượng bề mặt ${data.progress.current}/${data.progress.total}…`
+            : data.progress.stage === "bootstrap"
+              ? `Nối frame ${data.progress.current} về mốc…`
+              : `Căn bề mặt vòng ${data.progress.round} · ${data.progress.current}/${data.progress.total}…`;
+        return;
+      }
       $("status").textContent =
         data.progress.stage === "consensus"
           ? "Đang kiểm tra điểm được nhiều frame hỗ trợ…"
@@ -132,6 +189,8 @@ function work(op, payload = {}, transfer = []) {
 }
 function invalidate() {
   result = null;
+  corePanel.core = null;
+  corePanel.proposal = null;
   consumed = true;
   $("rows").replaceChildren();
   $("view").replaceChildren(new Option("Ghép nhiều frame", "fused"));
@@ -216,15 +275,21 @@ function range() {
   return [a, b];
 }
 function draft() {
-  return buildDraft(baseline, result, range(), {
-    size: $("useSize").checked,
-    pose: $("usePose").checked,
+  return buildDraft(baseline, activeProposal(), range(), {
+    size: isCore() || $("useSize").checked,
+    pose: isCore() || $("usePose").checked,
     jobStart: session.start,
     jobEnd: session.end,
   });
 }
 function renderDraft() {
-  if (!result?.applicable) {
+  if (isCore() && !corePanel.proposal) {
+    $("draft").textContent =
+      "Lõi chưa tạo box. Có thể chỉnh box chung rồi bấm tạo đề xuất; frame chưa căn được sẽ giữ nguyên.";
+    controls();
+    return;
+  }
+  if (!activeProposal()?.applicable) {
     $("draft").textContent = "Chưa có đề xuất đủ bằng chứng.";
     return;
   }
@@ -238,6 +303,25 @@ function renderDraft() {
   controls();
 }
 function renderResult() {
+  if (isCore()) {
+    corePanel.set(result);
+    modeUI();
+    renderDraft();
+    return;
+  }
+  const head = document.createElement("tr");
+  for (const label of [
+    "Frame",
+    "Điểm giữ/tổng",
+    "Dịch (m)",
+    "Góc (°)",
+    "Kết quả",
+  ]) {
+    const th = document.createElement("th");
+    th.textContent = label;
+    head.append(th);
+  }
+  $("columns").replaceChildren(head);
   $("view").replaceChildren(new Option("Ghép nhiều frame", "fused"));
   $("rows").replaceChildren();
   for (const f of result.frames) {
@@ -272,6 +356,10 @@ function renderResult() {
   renderPreview();
 }
 function renderPreview() {
+  if (isCore()) {
+    corePanel.render();
+    return;
+  }
   if (result) {
     drawPreview(canvases, result, $("view").value, {
       size: $("useSize").checked,
@@ -313,6 +401,7 @@ async function analyze() {
   controls();
   try {
     await work("init", {
+      mode: $("mode").value,
       track: baseline,
       others: session.annotations.tracks.filter(
         (x) =>
@@ -352,11 +441,16 @@ async function analyze() {
       }
     $("status").textContent = "Đang ghép và tinh chỉnh…";
     $("progress").removeAttribute("value");
-    result = await work("analyze");
+    result = await work("analyze", {
+      options:
+        $("mode").value === "core"
+          ? { referenceFrame: demo?.referenceFrame }
+          : undefined,
+    });
     if (gen !== generation) throw Error("Đã dừng phân tích.");
     result.range = r;
-    result.config = c;
-    consumed = false;
+    result.config = isCore() ? result.config : c;
+    consumed = isCore();
     renderResult();
     $("status").textContent = demo
       ? "Phân tích mẫu xong. Không có annotation thật nào bị sửa."
@@ -378,7 +472,11 @@ function download(name, value) {
 $("read").onclick = () => run(read);
 function loadDemo(clutter = false) {
   return run(async () => {
-    demo = clutter ? makeClutteredTrack() : makeDemo();
+    demo = clutter
+      ? makeClutteredTrack()
+      : $("mode").value === "core"
+        ? makeReconstructionDemo()
+        : makeDemo();
     session = {
       annotations: { tracks: [demo.track], shapes: [], tags: [] },
       labels: [{ id: 1, name: "Xe mẫu" }],
@@ -389,14 +487,20 @@ function loadDemo(clutter = false) {
     canUndo = false;
     renderSession();
     show(
-      clutter
-        ? "MẪU CÓ ĐIỂM NGOÀI\nPre-label gần đúng; frame 8 có cụm ngoài và dải nối thấp. Bấm Phân tích, chọn frame 8 rồi bật điểm bị loại để kiểm tra. Apply bị khóa."
-        : "DỮ LIỆU MẪU\nBox ban đầu nhỏ, lệch tâm và góc. Bấm Phân tích để xem thuật toán đề xuất. Apply bị khóa.",
+      $("mode").value === "core"
+        ? "MẪU DỰNG HÌNH\nBấm Phân tích để căn bề mặt. Không có box đo từ rìa điểm; box chung chỉ xuất hiện khi bạn bật chỉnh tay. Apply bị khóa trong mẫu."
+        : clutter
+          ? "MẪU CÓ ĐIỂM NGOÀI\nPre-label gần đúng; frame 8 có cụm ngoài và dải nối thấp. Bấm Phân tích, chọn frame 8 rồi bật điểm bị loại để kiểm tra. Apply bị khóa."
+          : "DỮ LIỆU MẪU\nBox ban đầu nhỏ, lệch tâm và góc. Bấm Phân tích để xem thuật toán đề xuất. Apply bị khóa.",
     );
   });
 }
 $("demo").onclick = () => loadDemo();
 $("demoGhost").onclick = () => loadDemo(true);
+$("mode").onchange = () => {
+  invalidate();
+  modeUI();
+};
 $("track").onchange = pickTrack;
 for (const id of ["start", "end", "maxFrames", "margin", "shift", "yaw", "api"])
   $(id).oninput = invalidate;
@@ -416,7 +520,7 @@ $("cancel").onclick = () => {
 };
 $("apply").onclick = () =>
   run(async () => {
-    if (demo || consumed || !result?.applicable)
+    if (demo || consumed || !activeProposal()?.applicable)
       throw Error("Cần phân tích mới.");
     const proposal = draft();
     if (!proposal.changed) throw Error("Không có thay đổi để Apply.");
@@ -462,6 +566,45 @@ $("backup").onclick = () =>
   download(
     `cvat-track-refiner-job-${backup.context.jobId}-before.json`,
     backup,
+  );
+async function rebuildCore(options) {
+  if (!isCore()) return;
+  const observations = result.observations,
+    c = result.config,
+    r = result.range,
+    gen = ++generation;
+  consumed = true;
+  newWorker();
+  controls();
+  try {
+    await work("init", {
+      mode: "core",
+      track: baseline,
+      config: c,
+      others: [],
+    });
+    await work("demoFrames", { frames: observations });
+    const next = await work("analyze", { options: { ...c, ...options } });
+    if (gen !== generation) throw Error("Đã dừng dựng hình.");
+    result = next;
+    result.range = r;
+    renderResult();
+    $("status").textContent =
+      "Đã dựng lại bằng crop đang giữ; chưa sửa annotation.";
+  } finally {
+    stopWorker();
+  }
+}
+$("snapshot").onclick = () =>
+  isCore() &&
+  download(
+    "cvat-reconstruction-snapshot.json",
+    reconstructionSnapshot(result, {
+      hiddenFrames: [...corePanel.hidden],
+      commonBox: corePanel.proposal?.commonBox || corePanel.readBox(),
+      showCommonBox: $("showCommonBox").checked,
+      manualProposalReady: !!corePanel.proposal,
+    }),
   );
 $("report").onclick = () =>
   result && download("track-refiner-analysis.json", analysisReport(result));

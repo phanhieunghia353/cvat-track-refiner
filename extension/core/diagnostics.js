@@ -1,6 +1,17 @@
 /** Local-only exports. Ordinary reports omit point coordinates; the explicit
  * diagnostic export contains bounded crops, never full PCDs or auth/context. */
-export function analysisReport(result, version = "0.2.1") {
+export function analysisReport(result, version = "0.3.0") {
+  if (result.kind === "reconstruction")
+    return {
+      version,
+      kind: result.kind,
+      reference: result.reference,
+      range: result.range,
+      config: result.config,
+      diagnostics: result.diagnostics,
+      warnings: result.warnings,
+      poses: result.poses,
+    };
   return {
     version,
     applicable: result.applicable,
@@ -41,7 +52,20 @@ export function analysisReport(result, version = "0.2.1") {
     ),
   };
 }
-export function diagnosticBundle(result, version = "0.2.1") {
+export function diagnosticBundle(result, version = "0.3.0") {
+  if (result.kind === "reconstruction")
+    return {
+      format: "cvat-reconstruction-diagnostic/v1",
+      version,
+      report: analysisReport(result, version),
+      observations: result.observations.map((f) => ({
+        frame: f.frame,
+        points: [...f.points],
+        xyz: Array.from(f.xyz),
+        masks: f.masks ? Array.from(f.masks) : undefined,
+        stats: { ...f.stats },
+      })),
+    };
   return {
     format: "cvat-track-refiner-crop-diagnostic",
     version,
@@ -52,5 +76,17 @@ export function diagnosticBundle(result, version = "0.2.1") {
       xyz: Array.from(f.rawXYZ || f.xyz),
       stats: { ...f.stats },
     })),
+  };
+}
+
+/** Snapshot preserves observed geometry, poses, masks and review choices only.
+ * It contains no session/credential metadata and is never sent by this module. */
+export function reconstructionSnapshot(core, viewer = {}) {
+  return {
+    ...diagnosticBundle(core),
+    format: "cvat-reconstruction-snapshot/v1",
+    surfaces: core.surfaces,
+    poses: core.poses,
+    viewer,
   };
 }

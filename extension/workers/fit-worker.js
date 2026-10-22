@@ -1,10 +1,13 @@
+import { reconstruct } from "../reconstruction/core.js";
+import { cropObservation } from "../reconstruction/crop.js";
 import { parsePCD } from "../pointcloud/pcd.js";
 import { cropObject } from "../pointcloud/crop.js";
 import { refineTrack } from "../fitting/refine.js";
 import { stateAt } from "../core/geometry.js";
 import { settings } from "../core/config.js";
 
-let config,
+let mode = "legacy",
+  config,
   track,
   others,
   frames = [];
@@ -16,6 +19,7 @@ self.onmessage = async ({ data }) => {
     let result;
     if (op === "init") {
       config = settings(data.config);
+      mode = data.mode || "legacy";
       track = data.track;
       others = data.others || [];
       frames = [];
@@ -29,7 +33,12 @@ self.onmessage = async ({ data }) => {
           .map((t) => stateAt(t, data.frame))
           .filter((s) => s && !s.outside && s.type === "cuboid")
           .map((s) => s.points);
-      const crop = cropObject(xyz, state.points, masks, config);
+      const crop = (mode === "core" ? cropObservation : cropObject)(
+        xyz,
+        state.points,
+        masks,
+        config,
+      );
       if (frames.length >= config.maxFrames)
         throw Error("Vượt số frame được phép giữ.");
       frames.push({ frame: data.frame, points: state.points, ...crop });
@@ -38,8 +47,10 @@ self.onmessage = async ({ data }) => {
       frames = data.frames;
       result = { ready: true };
     } else if (op === "analyze") {
-      result = await refineTrack(frames, config, (progress) =>
-        self.postMessage({ progress }),
+      result = await (mode === "core" ? reconstruct : refineTrack)(
+        frames,
+        { ...config, ...data.options },
+        (progress) => self.postMessage({ progress }),
       );
     } else throw Error("Worker operation không hợp lệ.");
     self.postMessage({ id, result });
