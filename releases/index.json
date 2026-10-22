@@ -1,0 +1,22 @@
+[
+  {
+    "tag": "v0.1.0",
+    "commit": "83941eb06b359db8a285f2da729d485915b3e4a7",
+    "prerelease": true,
+    "assets": [
+      "release-assets/cvat-track-refiner-brave-v0.1.0.zip",
+      "release-assets/cvat-track-refiner-source-v0.1.0.zip",
+      "release-assets/cvat-track-refiner-v0.1.0-SHA256SUMS.txt"
+    ]
+  },
+  {
+    "tag": "v0.2.0",
+    "commit": "6be9ab913c06f9729a0336b1243fc1673d72f0ad",
+    "prerelease": true,
+    "assets": [
+      "release-assets/cvat-track-refiner-brave-v0.2.0.zip",
+      "release-assets/cvat-track-refiner-source-v0.2.0.zip",
+      "release-assets/cvat-track-refiner-v0.2.0-SHA256SUMS.txt"
+    ]
+  }
+]

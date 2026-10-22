@@ -104,3 +104,7 @@ Mở `http://127.0.0.1:8765/panel.html` → Thử dữ liệu mẫu. Ngoài exte
 MIT. Cơ chế native Commit, frame refresh và hỗ trợ PCD được tham khảo/điều chỉnh từ [prelabelcheck_CVAT](https://github.com/thanhdanh11-test/prelabelcheck_CVAT), commit `0c6246c03704c142c27cddf9df4b9be2f3d7522b`. Giữ thông báo bản quyền của tác giả trong `THIRD-PARTY-LICENSES.txt` và `NOTICE.md`.
 
 Ý tưởng refinement theo object qua nhiều frame được đối chiếu với [Auto4D](https://arxiv.org/abs/2101.06586) và [3DAL](https://openaccess.thecvf.com/content/CVPR2021/html/Qi_Offboard_3D_Object_Detection_From_Point_Cloud_Sequences_CVPR_2021_paper.html). **Bản này không triển khai các model học sâu đó, không sử dụng weights hoặc hứa chất lượng tương đương các bài báo.**
+
+## GitHub version archive
+
+Original v0.1.0 and v0.2.0 ZIPs are preserved under `release-assets/`; each source version has a Git tag. See `releases/index.json` for exact source commits. Commits were imported when preparing this repository, not backdated development history. `dist/` is reserved for newly built packages.
