@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.2.1 · 22 October 2026
+
+- Revalidate actual per-frame boxes after final recentering, checking newly excluded original-covered trusted points and leave-one-out registration loss/support.
+- Fall back to the registered pose if it passes; otherwise preserve full pre-label geometry, including size. Recompute dimensions after removing failed observations.
+- Pin held sparse frames and block both size/pose interpolation through them. Use common geometry resolution for preview and draft, including size-only/pose-only refusals.
+- Export detailed final audits in ordinary reports; add an explicit local crop diagnostic and replay script. No automatic point-cloud upload.
+- 53 automated tests passed. The privately supplied summary report was read locally; its raw cloud was unavailable, so the exact reported frame remains unverified.
+
 ## 0.2.0 · 22 October 2026
 
 - Filter temporal evidence before yaw/size fitting. Distinct frames, rather than point density, supply votes; unsafe crops cannot vote.

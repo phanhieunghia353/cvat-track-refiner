@@ -1,4 +1,4 @@
-# CVAT Track Refiner · Experimental 0.2.0
+# CVAT Track Refiner · Experimental 0.2.1
 
 Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw** của cuboid track LiDAR bằng các quan sát nhiều frame. Thuật toán chạy trên máy, có xem trước, backup trước Apply và Undo qua CVAT. Không cần model AI, GPU, Python hay server riêng để sử dụng extension.
 
@@ -6,10 +6,11 @@ Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw
 
 ## Bản tải trên GitHub
 
-| Phiên bản | Trang release | Trạng thái |
-| --- | --- | --- |
-| [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Bản thử hiện tại, có lọc bằng chứng theo thời gian |
-| [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0) | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box |
+| Phiên bản                                                                    | Trang release                                                                                             | Trạng thái                                                          |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Bản thử hiện tại; kiểm tra box cuối trên từng frame                 |
+| [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Lưu lịch sử; có lọc bằng chứng nhưng thiếu kiểm tra lại sau căn tâm |
+| [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0)                 | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box                 |
 
 Cả hai được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` để cài extension; ZIP `source` gồm mã nguồn và tests. Gói tự động “Source code” do GitHub tạo từ tag có cấu trúc repository, khác gói extension đã đóng sẵn.
 
@@ -52,7 +53,7 @@ Bấm **Mẫu có cụm điểm ngoài** để thử pre-label gần đúng vớ
 - Trước khi fit: đưa điểm về trục pre-label, yêu cầu vùng điểm được ít nhất 3 frame độc lập hỗ trợ trong bán kính 0,22 m. Crop bị đánh dấu không an toàn không có quyền bỏ phiếu. Cụm điểm phải nối với thân box; dải điểm thấp ngoài box không được làm cầu nối sang vật khác.
 - Dò yaw cục bộ trên điểm đã lọc; đăng ký từng frame với mẫu từ các frame khác. Ước lượng L/W bằng dải thân giữa, dùng trung vị biên mỗi frame và độ phân tán biên thay cho gộp mọi điểm rồi lấy cực trị. Tính lại kích thước sau vòng chỉnh tư thế cuối. Có giới hạn dịch/xoay và regularization về pre-label.
 - Preview ghép chỉ dùng các frame được chấp nhận; hai box giữ chênh lệch tâm/góc thực của frame tham chiếu. Có thể bật điểm bị loại màu xám; bảng hiển thị số điểm giữ/tổng crop.
-- Kích thước chỉ đổi ở các chiều đạt kiểm tra bằng chứng. Frame mẫu bị từ chối giữ tâm/góc; giữa hai mẫu chấp nhận, hiệu chỉnh được nội suy. Không truyền hiệu chỉnh qua một mẫu bị từ chối.
+- Kích thước chỉ đổi ở các chiều đạt kiểm tra bằng chứng. Frame mẫu bị từ chối giữ toàn bộ hình học pre-label, kể cả kích thước; giữa hai mẫu chấp nhận, hiệu chỉnh được nội suy. Không truyền kích thước hoặc tư thế qua một mẫu bị từ chối. Đổi lựa chọn chỉ kích thước/chỉ tư thế cũng phải qua kiểm tra riêng.
 - Không tự đổi outside, occluded, class, attribute, nhóm, roll/pitch hoặc padding. Frame outside giữ hình học. Các điểm biên được ghim để hạn chế ảnh hưởng nội suy ngoài khoảng.
 - Bản đầu tạo keyframe dày trong khoảng visible để biểu diễn đề xuất chính xác. Chưa có rút gọn keyframe. Với job dài, hãy thử một khoảng nhỏ trước.
 
@@ -66,6 +67,18 @@ Bấm **Mẫu có cụm điểm ngoài** để thử pre-label gần đúng vớ
 - Sau Commit so sánh chính xác toàn annotation ngoài target, cùng nội dung target dự kiến (không tính serialization IDs). Nếu audit/refresh lỗi sau Commit, báo **đã Apply kèm cảnh báo**, không tự thử lại hoặc rollback cả job.
 - Backup có thể chứa nhãn chưa Save; có thể tải JSON riêng. Chỉ giữ snapshot mới nhất của mỗi job. Snapshot không phải gói dataset CVAT và chưa có chức năng nhập để khôi phục cả job bằng một nút.
 - Không đưa backup hoặc báo cáo job riêng tư vào Git public. Mã nguồn và demo không chứa annotation/point cloud thật.
+
+## Báo cáo và tái chạy lỗi
+
+**Tải báo cáo phân tích** chứa thông số, quyết định giữ box và kết quả kiểm tra cuối từng frame. Bản báo cáo thông thường không có tọa độ điểm nên không đủ để tái chạy bộ fit.
+
+**Tải chẩn đoán có điểm crop** là lựa chọn riêng chứa các crop giới hạn đang nằm trong bộ nhớ, không chứa toàn bộ PCD hoặc cookie/token. File chỉ tải về máy, không tự gửi tới GitHub hay nơi khác. Tọa độ vẫn là dữ liệu của job: không commit file này vào repo Public. Có thể tái chạy cục bộ bằng:
+
+```sh
+node scripts/replay.mjs /path/to/track-refiner-crop-diagnostic.json > replay-report.json
+```
+
+v0.2.1 kiểm tra box sau mọi bước căn tâm: giới hạn phần điểm trước đó nằm trong pre-label nhưng bị box mới bỏ ra ngoài, có dung sai 8 cm và ngưỡng mất tối đa 4% (tối thiểu 3 điểm). Đồng thời kiểm tra lại khớp mẫu không chứa chính frame đó; nếu tâm cuối không đạt, thử tư thế trước căn tâm hoặc giữ nguyên pre-label. Các ngưỡng này là heuristic. Điểm bị lọc nhầm vẫn có thể làm kiểm tra đánh giá sai; frame chưa lấy mẫu chưa được kiểm tra bằng point cloud riêng.
 
 ## Giới hạn về chất lượng
 

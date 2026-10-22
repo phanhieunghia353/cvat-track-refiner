@@ -15,6 +15,8 @@ export const DEFAULTS = Object.freeze({
   consensusRadius: 0.22,
   consensusFrames: 3,
   endpointTolerance: 0.16,
+  boxMargin: 0.08,
+  maxCoverageLoss: 0.04,
   maxFrameBytes: 32 * 1024 * 1024,
   maxRange: 1200,
 });
@@ -31,6 +33,8 @@ export function settings(input = {}) {
     consensusRadius: [0.1, 0.4],
     consensusFrames: [3, 8, true],
     endpointTolerance: [0.05, 0.25],
+    boxMargin: [0.02, 0.15],
+    maxCoverageLoss: [0.01, 0.08],
   };
   for (const [key, [lo, hi, integer]] of Object.entries(rules))
     if (

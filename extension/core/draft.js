@@ -7,6 +7,8 @@ import {
   validateTrack,
 } from "./geometry.js";
 
+import { finalBox, holdsGeometry } from "../fitting/validation.js";
+
 /** Build an isolated proposal, never mutate baseline. Dense keys deliberately
  * preserve each frame's proposed pose/visibility/attributes. Boundary keys pin
  * interpolation outside the selected interval. Key reduction is not in v0.1. */
@@ -35,14 +37,19 @@ export function buildDraft(
   for (let f = start; f <= end; f++) {
     const original = stateAt(baseline, f);
     if (!original || original.outside) continue;
+    const left = [...observations].reverse().find((x) => x.frame <= f),
+      right = observations.find((x) => x.frame >= f);
+    // No correction of any kind crosses a sample explicitly held by the audit.
+    if (holdsGeometry(left, options) || holdsGeometry(right, options)) {
+      byFrame.set(f, clone(original));
+      continue;
+    }
     const shape = clone(original),
       p = shape.points;
     if (options.size)
       for (let j = 0; j < 3; j++)
         if (result.measuredAxes[j]) p[6 + j] = result.size[j];
     if (options.pose) {
-      const left = [...observations].reverse().find((x) => x.frame <= f),
-        right = observations.find((x) => x.frame >= f);
       if (left?.accepted && right?.accepted) {
         const t =
           left.frame === right.frame
@@ -56,6 +63,12 @@ export function buildDraft(
         if (left.frame !== right.frame) inferred++;
       }
     }
+    if (left?.frame === f)
+      p.splice(
+        0,
+        p.length,
+        ...finalBox(left, result.size, result.measuredAxes, options),
+      );
     if (p.some((v, j) => Math.abs(v - original.points[j]) > 1e-10)) changed++;
     byFrame.set(f, shape);
   }

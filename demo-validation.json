@@ -1,17 +1,31 @@
 {
-  "version": "0.2.0",
+  "version": "0.2.1",
   "limitations": "Controlled synthetic fixtures, not accuracy measured on real CVAT jobs.",
   "cases": [
     {
       "name": "undersized",
       "frames": 12,
       "accepted": 12,
-      "trueSize": [4.6, 1.9, 1.6],
-      "baselineSize": [3.9, 1.65, 1.45],
-      "proposedSize": [
-        4.635748571495734, 1.9215753645269378, 1.6199853575229644
+      "trueSize": [
+        4.6,
+        1.9,
+        1.6
       ],
-      "measuredAxes": [true, true, true],
+      "baselineSize": [
+        3.9,
+        1.65,
+        1.45
+      ],
+      "proposedSize": [
+        4.62420769858317,
+        1.9147803823409364,
+        1.620042689740658
+      ],
+      "measuredAxes": [
+        true,
+        true,
+        true
+      ],
       "meanCenterErrorBeforeMetres": 0.19287301521985914,
       "meanCenterErrorAfterMetres": 0.024186891153674343,
       "meanYawErrorBeforeDegrees": 4.870141258611999,
@@ -25,10 +39,26 @@
       "name": "transient exterior cluster",
       "frames": 12,
       "accepted": 12,
-      "trueSize": [4.6, 1.9, 1.6],
-      "baselineSize": [4.6, 1.9, 1.6],
-      "proposedSize": [4.6, 1.9, 1.6],
-      "measuredAxes": [true, true, true],
+      "trueSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "baselineSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "proposedSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "measuredAxes": [
+        true,
+        true,
+        true
+      ],
       "meanCenterErrorBeforeMetres": 0,
       "meanCenterErrorAfterMetres": 0.005348787890452018,
       "meanYawErrorBeforeDegrees": 0,
@@ -42,10 +72,26 @@
       "name": "persistent low-bridge clutter",
       "frames": 12,
       "accepted": 12,
-      "trueSize": [4.6, 1.9, 1.6],
-      "baselineSize": [4.6, 1.9, 1.6],
-      "proposedSize": [4.6, 1.9, 1.6],
-      "measuredAxes": [true, true, true],
+      "trueSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "baselineSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "proposedSize": [
+        4.6,
+        1.9,
+        1.6
+      ],
+      "measuredAxes": [
+        true,
+        true,
+        true
+      ],
       "meanCenterErrorBeforeMetres": 0,
       "meanCenterErrorAfterMetres": 0.00535041890373049,
       "meanYawErrorBeforeDegrees": 0,

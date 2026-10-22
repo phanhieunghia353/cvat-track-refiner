@@ -2,6 +2,8 @@ import { cvatBridge } from "./cvat/bridge.js";
 import { validateTrack, clone, sampleFrames } from "./core/geometry.js";
 import { settings } from "./core/config.js";
 import { buildDraft } from "./core/draft.js";
+import { analysisReport, diagnosticBundle } from "./core/diagnostics.js";
+import { holdsGeometry } from "./fitting/validation.js";
 import { drawPreview } from "./ui/preview.js";
 import { makeDemo } from "./demo/generate.js";
 import { makeClutteredTrack } from "./demo/clutter.js";
@@ -54,6 +56,7 @@ function controls() {
   $("undo").disabled = busy || !!demo || !canUndo;
   $("backup").disabled = !backup;
   $("report").disabled = !result;
+  $("diagnostic").disabled = !result;
 }
 async function run(action) {
   if (busy) return;
@@ -245,7 +248,7 @@ function renderResult() {
       `${f.xyz.length / 3}/${(f.rawXYZ || f.xyz).length / 3}`,
       (f.shift || 0).toFixed(3),
       (((f.yaw || 0) * 180) / Math.PI).toFixed(2),
-      f.accepted ? "Có hỗ trợ từ frame khác" : "Giữ tâm/góc pre-label",
+      f.accepted ? "Qua kiểm tra box cuối" : "Giữ nguyên box pre-label",
     ]) {
       const td = document.createElement("td");
       td.textContent = v;
@@ -261,7 +264,7 @@ function renderResult() {
   const good = result.frames.filter((f) => f.accepted).length;
   show(
     result.applicable
-      ? `ĐỀ XUẤT — CHƯA APPLY\nL / W / H: ${result.size.map((v) => v.toFixed(3)).join(" / ")} m\nChiều có đủ bằng chứng: ${["L", "W", "H"].filter((_, j) => result.measuredAxes[j]).join(", ")}. Chiều còn lại giữ pre-label từng frame.\n${good}/${result.frames.length} frame mẫu có hỗ trợ; các frame khác giữ tâm/góc.\n${result.warnings.join("\n")}`
+      ? `ĐỀ XUẤT — CHƯA APPLY\nL / W / H: ${result.size.map((v) => v.toFixed(3)).join(" / ")} m\nChiều có đủ bằng chứng: ${["L", "W", "H"].filter((_, j) => result.measuredAxes[j]).join(", ")}. Chiều còn lại giữ pre-label từng frame.\n${good}/${result.frames.length} frame mẫu qua kiểm tra; các frame khác giữ nguyên box. Frame chưa lấy mẫu vẫn cần kiểm tra.\n${result.warnings.join("\n")}`
       : result.reason,
     result.applicable ? "success" : "error",
   );
@@ -275,10 +278,22 @@ function renderPreview() {
       pose: $("usePose").checked,
       showRejected: $("showRejected").checked,
     });
+    const selectedFrame = result.frames.find(
+      (f) => String(f.frame) === $("view").value,
+    );
     $("viewHint").textContent =
       $("view").value === "fused"
         ? `Chỉ ghép điểm được chấp nhận, màu theo frame. Hai box lấy từ frame ${result.referenceFrame ?? "tham chiếu"}, giữ chênh lệch tâm/góc thực. Điểm bị loại: xám khi bật.`
         : "Điểm và hai box trong trục pre-label của frame này. Cam: gốc; xanh: đề xuất. Điểm bị loại: xám khi bật; màu khác là điểm giữ lại.";
+    if (
+      selectedFrame &&
+      holdsGeometry(selectedFrame, {
+        size: $("useSize").checked,
+        pose: $("usePose").checked,
+      })
+    )
+      $("viewHint").textContent +=
+        " Giữ nguyên box ở lựa chọn hiện tại: " + selectedFrame.reason;
   }
 }
 async function analyze() {
@@ -448,30 +463,11 @@ $("backup").onclick = () =>
     `cvat-track-refiner-job-${backup.context.jobId}-before.json`,
     backup,
   );
-$("report").onclick = () => {
-  if (!result) return;
-  download("track-refiner-analysis.json", {
-    version: "0.2.0",
-    range: result.range,
-    config: result.config,
-    size: result.size,
-    measuredAxes: result.measuredAxes,
-    sizeEvidence: result.sizeEvidence,
-    warnings: result.warnings,
-    frames: result.frames.map(
-      ({ frame, original, pose, accepted, reason, shift, yaw, stats }) => ({
-        frame,
-        original,
-        pose,
-        accepted,
-        reason,
-        shift,
-        yaw,
-        stats,
-      }),
-    ),
-  });
-};
+$("report").onclick = () =>
+  result && download("track-refiner-analysis.json", analysisReport(result));
+$("diagnostic").onclick = () =>
+  result &&
+  download("track-refiner-crop-diagnostic.json", diagnosticBundle(result));
 new ResizeObserver(renderPreview).observe(document.querySelector(".results"));
 window.addEventListener("pagehide", () => {
   stopWorker();

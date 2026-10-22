@@ -1,5 +1,7 @@
 import { localPoint, worldPoint } from "../core/geometry.js";
 
+import { finalBox } from "../fitting/validation.js";
+
 const EDGES = [
   [0, 1],
   [0, 2],
@@ -50,9 +52,7 @@ export function previewScene(
     if (selected && f !== selected) continue;
     const reference = selected
       ? selected.original
-      : options.pose
-        ? f.pose
-        : f.original;
+      : finalBox(f, result.size, result.measuredAxes, options);
     function layer(points, color, rejected = false) {
       if (!points?.length) return;
       const xyz = [],
@@ -77,15 +77,9 @@ export function previewScene(
   }
   const reference = selected
     ? anchor.original
-    : options.pose
-      ? anchor.pose
-      : anchor.original;
+    : finalBox(anchor, result.size, result.measuredAxes, options);
   const old = corners(anchor.original, reference);
-  const next = [...(options.pose ? anchor.pose : anchor.original)];
-  if (options.size && result.size) next.splice(6, 3, ...result.size);
-  if (result.measuredAxes)
-    for (let j = 0; j < 3; j++)
-      if (!result.measuredAxes[j]) next[6 + j] = anchor.original[6 + j];
+  const next = finalBox(anchor, result.size, result.measuredAxes, options);
   return {
     layers,
     old,

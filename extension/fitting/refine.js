@@ -8,6 +8,7 @@ import {
 } from "../core/geometry.js";
 import { settings } from "../core/config.js";
 import { filterEvidence, estimateDimensions } from "./evidence.js";
+import { boxCoverage } from "./validation.js";
 
 function localCloud(xyz, p, limit = 400) {
   const out = [],
@@ -165,6 +166,7 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
         ...f,
         pose: f.original,
         accepted: false,
+        preserveGeometry: true,
         reason: "Thiếu bằng chứng",
       })),
       size: null,
@@ -222,40 +224,129 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
     }
   }
   let accepted = usable.filter((f) => !f.rejected && (f.support || 0) >= 0.55);
-  // Dimensions were formerly returned from BEFORE the last pose update. Refit
-  // endpoints on the final accepted set, then recenter so preview and Apply
-  // share the same canonical box; rejected frames cannot inflate the result.
+  // Registration support is provisional. Recentring changes actual geometry,
+  // so audit that final box against this frame and a frozen leave-one-out set.
   let finalEstimate = estimateDimensions(accepted, baseline, c);
   axes = finalEstimate.axes;
   size = finalEstimate.size;
+  const registered = new Map(accepted.map((f) => [f, [...f.pose]]));
   for (const f of accepted) {
-    const proposed = [...f.pose],
-      offset = finalEstimate.frameCenters.get(f.frame) || finalEstimate.center;
+    const proposed = [...f.pose];
+    const offset =
+      finalEstimate.frameCenters.get(f.frame) || finalEstimate.center;
     proposed.splice(0, 3, ...worldPoint(...offset, f.pose));
     if (withinLimits(proposed, f.original, c)) f.pose = proposed;
-    else f.rejected = true;
   }
-  const recenterFailed = accepted.some((f) => f.rejected);
+  const frozen = accepted.map((f) => ({ frame: f, pose: [...f.pose] }));
+  function evaluate(f, pose, nearest) {
+    const box = [...pose];
+    for (let j = 0; j < 3; j++)
+      box[6 + j] = axes[j] ? size[j] : f.original[6 + j];
+    const coverage = boxCoverage(f.xyz, f.original, box, c);
+    const before = poseCost(f, f.original, nearest, c),
+      after = poseCost(f, pose, nearest, c);
+    return {
+      safe:
+        coverage.safe &&
+        after.ratio >= 0.55 &&
+        after.loss <= before.loss + 0.0002,
+      coverage,
+      lossBefore: before.loss,
+      lossAfter: after.loss,
+      support: after.ratio,
+    };
+  }
+  for (const f of accepted) {
+    const template = voxelSample(
+      frozen
+        .filter((o) => o.frame !== f)
+        .flatMap((o) => localCloud(o.frame.xyz, o.pose, 250)),
+      c.voxel,
+      10000,
+    );
+    const nearest = makeGrid(template, c.matchRadius);
+    const centered = evaluate(f, f.pose, nearest);
+    let selected = centered;
+    f.validation = { stage: "final-box", centered };
+    if (!centered.safe) {
+      const fallback = evaluate(f, registered.get(f), nearest);
+      f.validation.registered = fallback;
+      if (fallback.safe) {
+        f.pose = registered.get(f);
+        selected = fallback;
+        f.validation.decision = "keep-registration";
+      } else {
+        f.rejected = true;
+        f.reason =
+          "Box cuối làm mất điểm hoặc không khớp mẫu; giữ nguyên pre-label.";
+        f.validation.decision = "preserve";
+      }
+    } else f.validation.decision = "recentered";
+    f.support = selected.support;
+  }
   accepted = accepted.filter((f) => !f.rejected);
-  if (
-    recenterFailed ||
-    accepted.length < c.consensusFrames ||
-    !axes.some(Boolean)
-  )
+  // Removing a failed pose changes the dimensional witnesses. Recompute size
+  // without reapplying an unchecked centre offset. Every pass removes frames
+  // or terminates; at most one pass per input frame is possible.
+  for (let pass = 0; pass <= frames.length; pass++) {
+    finalEstimate = estimateDimensions(accepted, baseline, c);
+    axes = finalEstimate.axes;
+    size = finalEstimate.size;
+    const snapshot = accepted.map((f) => ({ frame: f, pose: [...f.pose] }));
+    const failed = [];
+    for (const f of accepted) {
+      const template = voxelSample(
+        snapshot
+          .filter((o) => o.frame !== f)
+          .flatMap((o) => localCloud(o.frame.xyz, o.pose, 250)),
+        c.voxel,
+        10000,
+      );
+      const audit = evaluate(f, f.pose, makeGrid(template, c.matchRadius));
+      f.validation.final = audit;
+      if (!audit.safe) {
+        failed.push(f);
+        f.reason =
+          "Box cuối chưa qua kiểm tra từng frame; giữ nguyên pre-label.";
+        f.validation.decision = "preserve";
+        continue;
+      }
+      f.support = audit.support;
+      const box = [...f.pose],
+        sizeOnly = [...f.original];
+      for (let j = 0; j < 3; j++)
+        if (axes[j]) box[6 + j] = sizeOnly[6 + j] = size[j];
+      f.geometryChecks = {
+        combined: audit.coverage,
+        size: boxCoverage(f.xyz, f.original, sizeOnly, c),
+        pose: boxCoverage(f.xyz, f.original, f.pose, c),
+      };
+    }
+    if (!failed.length) break;
+    const bad = new Set(failed);
+    accepted = accepted.filter((f) => !bad.has(f));
+    if (accepted.length < c.consensusFrames) break;
+  }
+  if (accepted.length < c.consensusFrames || !axes.some(Boolean))
     return {
       applicable: false,
-      reason:
-        "Các frame chưa đồng thuận đủ để đề xuất sửa. Tăng vùng tìm hoặc chọn khoảng rõ hơn.",
+      reason: "Box cuối chưa qua kiểm tra đủ frame; giữ nguyên pre-label.",
       frames: frames.map((f) => ({
         ...f,
         pose: f.original,
         accepted: false,
-        reason: f.reason || "Chưa đồng thuận",
+        preserveGeometry: true,
+        reason: f.reason || "Chưa đủ bằng chứng",
       })),
       size: null,
       template: new Float32Array(),
       warnings,
     };
+  const preserved = frames.length - accepted.length;
+  if (preserved)
+    warnings.push(
+      `${preserved} frame mẫu giữ toàn bộ box pre-label; không truyền kích thước/tư thế qua các mẫu này.`,
+    );
   if (axes.some((v) => !v))
     warnings.push(
       "Một số chiều chưa đủ góc nhìn; giữ kích thước pre-label cho các chiều đó.",
@@ -289,8 +380,9 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
     frames: frames.map((f) => ({
       ...f,
       accepted: accepted.includes(f),
+      preserveGeometry: !accepted.includes(f),
       reason: accepted.includes(f)
-        ? "Có hỗ trợ từ frame khác"
+        ? "Khớp mẫu và qua kiểm tra box cuối"
         : f.reason || "Ít điểm / vùng tìm chưa đủ / có vật cạnh tranh",
       pose: accepted.includes(f) ? f.pose : f.original,
       shift: accepted.includes(f)

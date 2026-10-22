@@ -25,7 +25,7 @@ extension_zip = DIST / f'cvat-track-refiner-brave-v{VERSION}.zip'
 write_zip(extension_zip, extension_entries)
 source_entries = [(p, 'cvat-track-refiner-source/' + p.relative_to(ROOT).as_posix())
                   for p in ROOT.rglob('*') if p.is_file()
-                  and not any(part in {'.git', 'dist', 'node_modules', '__pycache__', '.test-results'}
+                  and not any(part in {'.git', 'dist', 'node_modules', '__pycache__', '.test-results', 'private-data', 'backups', 'release-assets'}
                               for part in p.relative_to(ROOT).parts)]
 source_zip = DIST / f'cvat-track-refiner-source-v{VERSION}.zip'
 write_zip(source_zip, source_entries)

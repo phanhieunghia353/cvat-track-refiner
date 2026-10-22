@@ -2,7 +2,7 @@
 
 ## Automated checks
 
-47 tests passed with Node.js using `node scripts/test.mjs`:
+53 tests passed with Node.js using `node scripts/test.mjs`:
 
 - 13 adapter tests: read-only snapshot/preflight, unsaved unrelated edits, Auto save allowed, exact off-target audit, baseline and context conflicts, locked/saving/drawing/review states, metadata/geometry validation, native Undo, post-commit refresh failure, ambiguous Commit error, navigation after Commit, API prefix/trailing-slash discovery without following redirects, filtered-frame rejection and adding keys from a sparse-track draft.
 - 7 geometry/draft tests: XYZ transforms, angular wrap, mutable-attribute inheritance, frame sampling, unsupported cuboids, range boundaries and outside frames, unmeasured dimensions and rejected-sample interpolation.
@@ -10,6 +10,7 @@
 - 5 PCD tests: ASCII, binary AoS, binary_compressed SoA, LZF overlap, invalid references, truncation, HTML responses, nonfinite returns and allocation limits.
 - 3 transaction tests: backup quota abort, backup-before-Apply order and no automatic retry after transport failure.
 - 6 temporal-evidence tests: distinct-frame votes, transient exterior clutter, persistent clutter attached through a low bridge, real surfaces outside an undersized box, unsafe voting crops and insufficient overlapping evidence.
+- 6 final-box/diagnostic tests: lateral-shift plus shrink regression; exact final geometry for every accepted fixture sample; sparse held-frame pinning and size/pose interpolation boundaries; option-specific refusals; crop export/replay with no session credentials.
 - 4 preview tests: accepted-only fusion, optional gray rejected layers, real anchor offsets and independent size/pose toggles.
 - 3 worker tests: actual worker-thread PCD → crop → fit pipeline, transferable buffers, parse failure and termination during analysis; clutter fixture through the complete PCD/crop/fit pipeline.
 
@@ -23,7 +24,7 @@ All extension JavaScript modules passed syntax checks. Source is formatted with 
 
 | Measure                          | Pre-label             | Proposed              |
 | -------------------------------- | --------------------- | --------------------- |
-| L / W / H, metres                | 3.900 / 1.650 / 1.450 | 4.636 / 1.922 / 1.620 |
+| L / W / H, metres                | 3.900 / 1.650 / 1.450 | 4.624 / 1.915 / 1.620 |
 | True dimensions, metres          | 4.600 / 1.900 / 1.600 | same reference        |
 | Mean center error, metres        | 0.193                 | 0.024                 |
 | Mean absolute yaw error, degrees | 4.870                 | 0.650                 |
@@ -37,6 +38,12 @@ All 12 samples accepted in this fixture. These results are **not an accuracy est
 In 0.2, both fixtures retain L/W/H = 4.600 / 1.900 / 1.600 m and zero yaw correction. Frame 8 discards 458/1287 points in the transient case and 456/1287 in the persistent case. Small center corrections remain (mean approximately 0.005 m); this is not a zero-change guarantee. The original undersized fixture still expands to recover observed body surfaces, so passing is not achieved by clipping everything outside the pre-label.
 
 These are controlled counterexamples, not reconstructions of the screenshot or proof that all real ghosting has been solved. Repeated clutter touching the main body can still pass the filter, and genuine one-off observations can be discarded. Actual data from the reported frame has not been run.
+
+## Per-frame regression in 0.2.1
+
+A locally supplied 0.2.0 summary report confirmed a roughly 0.319 m correction in the reported problematic sample. Inspection found final recentering was not followed by a new coverage/registration audit. The ordinary report has no point coordinates, so the actual reported sample could not be reproduced. It is not included in this public repository.
+
+A synthetic regression with a 0.32 m lateral shift plus width shrink is refused by the new coverage check. Tests also require every accepted clean/clutter fixture sample to pass an audit of the exact returned box and final leave-one-out loss. Held sparse frames remain pinned in the draft and preview; size-only refusals block interpolation around unsafe samples. Diagnostic export is replayable locally. This does not establish that the private reported sample is now correct; a crop diagnostic is needed to verify it.
 
 ## Browser verification
 
