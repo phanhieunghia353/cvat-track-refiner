@@ -1,0 +1,468 @@
+import { cvatBridge } from "./cvat/bridge.js";
+import { validateTrack, clone, sampleFrames } from "./core/geometry.js";
+import { settings } from "./core/config.js";
+import { buildDraft } from "./core/draft.js";
+import { drawPreview } from "./ui/preview.js";
+import { makeDemo } from "./demo/generate.js";
+import { applyProposal } from "./cvat/transaction.js";
+
+const $ = (id) => document.getElementById(id),
+  tabId = Number(new URL(location.href).searchParams.get("tab"));
+let session = null,
+  result = null,
+  baseline = null,
+  busy = false,
+  demo = null,
+  worker = null,
+  pending = new Map(),
+  requestID = 0,
+  generation = 0,
+  consumed = true,
+  backup = null,
+  canUndo = false;
+const canvases = [...document.querySelectorAll("canvas")];
+function show(text, type = "") {
+  $("summary").textContent = text;
+  $("summary").className = "summary " + type;
+}
+function controls() {
+  for (const id of [
+    "read",
+    "demo",
+    "track",
+    "start",
+    "end",
+    "maxFrames",
+    "margin",
+    "shift",
+    "yaw",
+    "api",
+    "useSize",
+    "usePose",
+  ])
+    $(id).disabled = busy;
+  $("analyze").disabled = busy || !session;
+  $("cancel").disabled = !busy || !worker;
+  $("apply").disabled =
+    busy ||
+    !!demo ||
+    !result?.applicable ||
+    consumed ||
+    !($("useSize").checked || $("usePose").checked);
+  $("undo").disabled = busy || !!demo || !canUndo;
+  $("backup").disabled = !backup;
+  $("report").disabled = !result;
+}
+async function run(action) {
+  if (busy) return;
+  busy = true;
+  controls();
+  try {
+    await action();
+  } catch (e) {
+    show(e.message, "error");
+    $("status").textContent = "Dừng. Đọc thông báo trước khi tiếp tục.";
+  } finally {
+    busy = false;
+    $("progress").hidden = true;
+    controls();
+  }
+}
+async function bridge(request, context = session?.context) {
+  if (!globalThis.chrome?.scripting || !Number.isInteger(tabId) || !tabId)
+    throw Error(
+      "Cài extension trên Brave/Chrome và mở từ biểu tượng tại tab CVAT, hoặc chọn dữ liệu mẫu.",
+    );
+  const response = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: "MAIN",
+    func: cvatBridge,
+    args: [{ ...request, context }],
+  });
+  const reply = response[0]?.result;
+  if (!reply?.ok)
+    throw Error(
+      reply?.error || "Không nhận được phản hồi. Mở lại extension từ tab CVAT.",
+    );
+  return reply;
+}
+function stopWorker() {
+  worker?.terminate();
+  worker = null;
+  for (const p of pending.values())
+    p.reject(Error("Đã dừng phân tích. Chưa Apply."));
+  pending.clear();
+}
+function newWorker() {
+  stopWorker();
+  worker = new Worker(new URL("./workers/fit-worker.js", import.meta.url), {
+    type: "module",
+  });
+  worker.onmessage = ({ data }) => {
+    if (data.progress) {
+      $("status").textContent =
+        `Tinh chỉnh vòng ${data.progress.round}/${data.progress.total}…`;
+      return;
+    }
+    const p = pending.get(data.id);
+    if (p) {
+      pending.delete(data.id);
+      data.error ? p.reject(Error(data.error)) : p.resolve(data.result);
+    }
+  };
+  worker.onerror = (e) => {
+    for (const p of pending.values())
+      p.reject(Error(e.message || "Không khởi động được worker."));
+    pending.clear();
+  };
+}
+function work(op, payload = {}, transfer = []) {
+  return new Promise((resolve, reject) => {
+    const id = ++requestID;
+    pending.set(id, { resolve, reject });
+    worker.postMessage({ id, op, ...payload }, transfer);
+  });
+}
+function invalidate() {
+  result = null;
+  consumed = true;
+  $("rows").replaceChildren();
+  $("view").replaceChildren(new Option("Ghép nhiều frame", "fused"));
+  $("draft").textContent = "Phân tích lại với lựa chọn hiện tại.";
+  for (const canvas of canvases)
+    canvas.getContext("2d").clearRect(0, 0, canvas.width, canvas.height);
+  show("Lựa chọn đã đổi. Bấm Phân tích để tạo đề xuất mới.");
+  controls();
+}
+function selected() {
+  return session?.annotations.tracks.find(
+    (t) => t.clientID === Number($("track").value),
+  );
+}
+function pickTrack() {
+  invalidate();
+  const t = selected();
+  if (!t) return;
+  $("start").value = Math.max(
+    session.start,
+    Math.min(...t.shapes.map((s) => s.frame)),
+  );
+  $("end").value = session.end;
+}
+function renderSession() {
+  $("track").replaceChildren();
+  for (const t of session.annotations.tracks.filter(
+    (t) => t.shapes?.length && t.shapes.every((s) => s.type === "cuboid"),
+  )) {
+    const label =
+      session.labels.find((l) => l.id === t.label_id)?.name ||
+      `label ${t.label_id}`;
+    $("track").append(
+      new Option(
+        `CVAT #${t.clientID} · ${label} · ${t.shapes.length} key`,
+        String(t.clientID),
+      ),
+    );
+  }
+  if ([...$("track").options].some((o) => o.value === String(session.activeID)))
+    $("track").value = String(session.activeID);
+  $("context").textContent = demo
+    ? "DỮ LIỆU MẪU · không kết nối CVAT"
+    : `Job ${session.context.jobId} · frame ${session.start}–${session.end}`;
+  $("autosave").textContent = demo
+    ? "Dữ liệu tổng hợp; Apply bị khóa."
+    : `Auto save: ${session.autoSave === true ? "BẬT — sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra" : session.autoSave === false ? "TẮT — bạn tự Save sau khi kiểm tra" : "chưa xác định — CVAT có thể tự lưu nếu được cấu hình"}. Native Commit có thể đổi ID; Undo/Redo qua CVAT.`;
+  pickTrack();
+  $("status").textContent = "Đã đọc dữ liệu. Phân tích chưa sửa annotation.";
+}
+async function read() {
+  demo = null;
+  session = await bridge({ op: "snapshot" }, null);
+  canUndo = false;
+  renderSession();
+  show(
+    "Chọn track và khoảng frame rồi Phân tích. Các sửa chưa Save được đọc từ phiên CVAT.",
+  );
+}
+function config() {
+  return settings({
+    maxFrames: Number($("maxFrames").value),
+    cropMargin: Number($("margin").value),
+    maxShift: Number($("shift").value),
+    maxYaw: (Number($("yaw").value) * Math.PI) / 180,
+  });
+}
+function range() {
+  const a = Number($("start").value),
+    b = Number($("end").value);
+  if (
+    !$("start").value ||
+    !$("end").value ||
+    !Number.isInteger(a) ||
+    !Number.isInteger(b) ||
+    a < session.start ||
+    b > session.end ||
+    b < a ||
+    b - a >= 1200
+  )
+    throw Error("Chọn khoảng hợp lệ trong job, tối đa 1200 frame.");
+  return [a, b];
+}
+function draft() {
+  return buildDraft(baseline, result, range(), {
+    size: $("useSize").checked,
+    pose: $("usePose").checked,
+    jobStart: session.start,
+    jobEnd: session.end,
+  });
+}
+function renderDraft() {
+  if (!result?.applicable) {
+    $("draft").textContent = "Chưa có đề xuất đủ bằng chứng.";
+    return;
+  }
+  try {
+    const d = draft();
+    $("draft").textContent =
+      `${d.changed} frame thay đổi · thêm ${d.newKeys} keyframe · ${d.inferred} frame có tâm/góc nội suy giữa mẫu.`;
+  } catch (e) {
+    $("draft").textContent = e.message;
+  }
+  controls();
+}
+function renderResult() {
+  $("view").replaceChildren(new Option("Ghép nhiều frame", "fused"));
+  $("rows").replaceChildren();
+  for (const f of result.frames) {
+    $("view").append(new Option(`Frame ${f.frame}`, String(f.frame)));
+    const tr = document.createElement("tr");
+    for (const v of [
+      f.frame,
+      f.xyz.length / 3,
+      (f.shift || 0).toFixed(3),
+      (((f.yaw || 0) * 180) / Math.PI).toFixed(2),
+      f.accepted ? "Có hỗ trợ từ frame khác" : "Giữ tâm/góc pre-label",
+    ]) {
+      const td = document.createElement("td");
+      td.textContent = v;
+      tr.append(td);
+    }
+    tr.title = f.reason || "";
+    tr.onclick = () => {
+      $("view").value = String(f.frame);
+      renderPreview();
+    };
+    $("rows").append(tr);
+  }
+  const good = result.frames.filter((f) => f.accepted).length;
+  show(
+    result.applicable
+      ? `ĐỀ XUẤT — CHƯA APPLY\nL / W / H: ${result.size.map((v) => v.toFixed(3)).join(" / ")} m\nChiều có đủ bằng chứng: ${["L", "W", "H"].filter((_, j) => result.measuredAxes[j]).join(", ")}. Chiều còn lại giữ pre-label từng frame.\n${good}/${result.frames.length} frame mẫu có hỗ trợ; các frame khác giữ tâm/góc.\n${result.warnings.join("\n")}`
+      : result.reason,
+    result.applicable ? "success" : "error",
+  );
+  renderDraft();
+  renderPreview();
+}
+function renderPreview() {
+  if (result) {
+    drawPreview(canvases, result, $("view").value, {
+      size: $("useSize").checked,
+      pose: $("usePose").checked,
+    });
+    $("viewHint").textContent =
+      $("view").value === "fused"
+        ? "Điểm được căn theo tư thế đề xuất, màu theo frame. Hai box ở tâm chung chỉ so kích thước; chọn frame để xem dịch/xoay."
+        : "Điểm và hai box trong trục pre-label của frame này. Cam: gốc; xanh: đề xuất. Frame ít bằng chứng giữ tâm/góc.";
+  }
+}
+async function analyze() {
+  invalidate();
+  const c = config(),
+    r = range(),
+    t = selected();
+  validateTrack(t);
+  baseline = clone(t);
+  result = null;
+  consumed = true;
+  const frames = sampleFrames(t, ...r, c.maxFrames);
+  if (frames.length < 3)
+    throw Error("Cần ít nhất 3 frame visible trong khoảng.");
+  const gen = ++generation;
+  newWorker();
+  controls();
+  try {
+    await work("init", {
+      track: baseline,
+      others: session.annotations.tracks.filter(
+        (x) =>
+          x.clientID !== t.clientID &&
+          x.shapes?.every((s) => s.type === "cuboid"),
+      ),
+      config: c,
+    });
+    $("progress").hidden = false;
+    $("progress").max = frames.length;
+    $("progress").value = 0;
+    if (demo) {
+      await work("demoFrames", {
+        frames: demo.frames.filter((f) => frames.includes(f.frame)),
+      });
+    } else
+      for (let i = 0; i < frames.length; i++) {
+        $("status").textContent =
+          `Đọc và lọc point cloud ${i + 1}/${frames.length} · frame ${frames[i]}…`;
+        const cloud = await bridge({
+          op: "cloud",
+          frame: frames[i],
+          apiBase: $("api").value.trim(),
+        });
+        if (gen !== generation) throw Error("Đã dừng phân tích.");
+        const bytes = Uint8Array.from(atob(cloud.base64), (ch) =>
+          ch.charCodeAt(0),
+        );
+        const stats = await work(
+          "ingest",
+          { frame: frames[i], buffer: bytes.buffer },
+          [bytes.buffer],
+        );
+        $("progress").value = i + 1;
+        $("status").textContent =
+          `Frame ${frames[i]}: giữ ${stats.kept}/${stats.raw} điểm.`;
+      }
+    $("status").textContent = "Đang ghép và tinh chỉnh…";
+    $("progress").removeAttribute("value");
+    result = await work("analyze");
+    if (gen !== generation) throw Error("Đã dừng phân tích.");
+    result.range = r;
+    result.config = c;
+    consumed = false;
+    renderResult();
+    $("status").textContent = demo
+      ? "Phân tích mẫu xong. Không có annotation thật nào bị sửa."
+      : "Phân tích xong. Xem từng frame trước khi Apply.";
+  } finally {
+    stopWorker();
+  }
+}
+function download(name, value) {
+  const url = URL.createObjectURL(
+    new Blob([JSON.stringify(value, null, 2)], { type: "application/json" }),
+  );
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = name;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+$("read").onclick = () => run(read);
+$("demo").onclick = () =>
+  run(async () => {
+    demo = makeDemo();
+    session = {
+      annotations: { tracks: [demo.track], shapes: [], tags: [] },
+      labels: [{ id: 1, name: "Xe mẫu" }],
+      activeID: 1,
+      start: 0,
+      end: demo.frames.length - 1,
+    };
+    canUndo = false;
+    renderSession();
+    show(
+      "DỮ LIỆU MẪU\nBox ban đầu nhỏ, lệch tâm và góc. Bấm Phân tích để xem thuật toán đề xuất. Apply bị khóa.",
+    );
+  });
+$("track").onchange = pickTrack;
+for (const id of ["start", "end", "maxFrames", "margin", "shift", "yaw", "api"])
+  $(id).oninput = invalidate;
+for (const id of ["useSize", "usePose"])
+  $(id).onchange = () => {
+    renderDraft();
+    renderPreview();
+  };
+$("view").onchange = renderPreview;
+$("analyze").onclick = () => run(analyze);
+$("cancel").onclick = () => {
+  generation++;
+  stopWorker();
+  if (!demo) bridge({ op: "abort" }).catch(() => {});
+  $("status").textContent = "Đã yêu cầu dừng; chưa Apply.";
+};
+$("apply").onclick = () =>
+  run(async () => {
+    if (demo || consumed || !result?.applicable)
+      throw Error("Cần phân tích mới.");
+    const proposal = draft();
+    if (!proposal.changed) throw Error("Không có thay đổi để Apply.");
+    // Invalidate BEFORE sending: even a transport error must not replay a commit.
+    consumed = true;
+    canUndo = false;
+    controls();
+    const { reply } = await applyProposal({
+      call: bridge,
+      storage: chrome.storage.local,
+      baseline,
+      proposal,
+      onBackup: (value) => {
+        backup = value;
+      },
+    });
+    canUndo = reply.canUndo;
+    if (reply.applied !== true) {
+      show("CHƯA XÁC ĐỊNH KẾT QUẢ APPLY\n" + reply.warning, "error");
+      $("status").textContent =
+        "Đề xuất đã khóa để tránh gửi lặp. Kiểm tra CVAT và backup.";
+      return;
+    }
+    show(
+      `ĐÃ APPLY VÀO PHIÊN CVAT\nCVAT ID mới: ${reply.clientID ?? "xem sidebar"}\n${reply.audited ? `Đã đối chiếu ${reply.otherTracks} track khác cùng shapes/tags.` : "Chưa xác nhận được dữ liệu sau Apply; kiểm tra cảnh báo."}\n${reply.autoSave === false ? "Tool không gọi Save server. Kiểm tra bằng Next và tự Save khi muốn." : "Auto save đang bật hoặc chưa xác định: CVAT có thể tự lưu."}\n${reply.warning || "Dùng Undo/Redo của CVAT hoặc nút hoàn tác khi chưa sửa tiếp."}`,
+      reply.warning ? "error" : "success",
+    );
+    $("status").textContent =
+      "Đề xuất đã dùng; đọc lại job trước lần phân tích mới.";
+  });
+$("undo").onclick = () =>
+  run(async () => {
+    const r = await bridge({ op: "undo" });
+    canUndo = false;
+    show(
+      r.warning ||
+        "Đã Undo Apply gần nhất trong phiên CVAT. Auto save/Save vẫn thuộc CVAT.",
+      r.warning ? "error" : "success",
+    );
+  });
+$("backup").onclick = () =>
+  backup &&
+  download(
+    `cvat-track-refiner-job-${backup.context.jobId}-before.json`,
+    backup,
+  );
+$("report").onclick = () => {
+  if (!result) return;
+  download("track-refiner-analysis.json", {
+    version: "0.1.0",
+    range: result.range,
+    config: result.config,
+    size: result.size,
+    measuredAxes: result.measuredAxes,
+    warnings: result.warnings,
+    frames: result.frames.map(
+      ({ frame, original, pose, accepted, reason, shift, yaw, stats }) => ({
+        frame,
+        original,
+        pose,
+        accepted,
+        reason,
+        shift,
+        yaw,
+        stats,
+      }),
+    ),
+  });
+};
+new ResizeObserver(renderPreview).observe(document.querySelector(".results"));
+window.addEventListener("pagehide", () => {
+  stopWorker();
+  if (busy && !demo) bridge({ op: "abort" }).catch(() => {});
+});
+controls();

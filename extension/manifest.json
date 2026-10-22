@@ -1,0 +1,10 @@
+{
+  "manifest_version": 3,
+  "name": "CVAT Track Refiner · Experimental",
+  "version": "0.1.0",
+  "description": "Fit rigid LiDAR cuboid tracks using multiple frames, with local preview and native CVAT Undo.",
+  "permissions": ["activeTab", "scripting", "storage"],
+  "minimum_chrome_version": "111",
+  "action": { "default_title": "Phân tích và tinh chỉnh track LiDAR" },
+  "background": { "service_worker": "background.js" }
+}

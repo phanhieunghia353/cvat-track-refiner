@@ -1,0 +1,10 @@
+{
+  "name": "cvat-track-refiner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node scripts/test.mjs",
+    "build": "python3 scripts/build.py"
+  }
+}

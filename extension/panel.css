@@ -1,0 +1,272 @@
+:root {
+  color-scheme: dark;
+  font:
+    14px/1.5 system-ui,
+    sans-serif;
+  color: #e0e8f3;
+  background: #101a29;
+}
+* {
+  box-sizing: border-box;
+}
+body {
+  margin: 0;
+}
+header {
+  padding: 22px 26px;
+  border-bottom: 1px solid #304054;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 15px;
+}
+h1 {
+  font-size: 25px;
+  line-height: 1.2;
+  margin: 8px 0;
+}
+p {
+  color: #b1bfd0;
+  margin: 8px 0 14px;
+}
+.eyebrow {
+  color: #57d9b8;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.1px;
+}
+main {
+  display: grid;
+  grid-template-columns: 310px minmax(0, 1fr);
+  gap: 22px;
+  padding: 24px;
+}
+section {
+  min-width: 0;
+}
+.controls {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: #bccbdd;
+}
+button,
+input,
+select {
+  font: inherit;
+  border: 1px solid #3a4d65;
+  border-radius: 7px;
+  background: #1a293d;
+  color: #edf3fa;
+  padding: 9px 10px;
+  min-width: 0;
+}
+button {
+  cursor: pointer;
+}
+button:hover:enabled {
+  border-color: #67e2c1;
+}
+button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+.primary {
+  background: #176c60;
+  border-color: #329c8b;
+  font-weight: 650;
+}
+.pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.pair label {
+  min-width: 0;
+}
+input,
+select {
+  width: 100%;
+}
+details {
+  border: 1px solid #304054;
+  padding: 10px;
+  border-radius: 8px;
+}
+summary {
+  cursor: pointer;
+}
+details label {
+  margin-top: 10px;
+}
+.check {
+  flex-direction: row;
+  align-items: center;
+}
+.check input {
+  width: 16px;
+  height: 16px;
+}
+.apply-box {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #304054;
+  padding-top: 15px;
+}
+.notice {
+  border-left: 3px solid #e5aa58;
+  padding-left: 10px;
+  color: #dfc49f;
+  font-size: 12px;
+}
+#status {
+  white-space: pre-line;
+  margin: 0;
+}
+#progress {
+  width: 100%;
+}
+.viewbar {
+  display: flex;
+  gap: 15px;
+  align-items: center;
+  justify-content: space-between;
+}
+.viewbar label {
+  flex-direction: row;
+  align-items: center;
+}
+.viewbar select {
+  max-width: 220px;
+}
+.viewbar span {
+  font-size: 12px;
+  white-space: nowrap;
+}
+i {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin: 0 5px 0 10px;
+}
+.old {
+  background: #f8aa4b;
+}
+.new {
+  background: #45e5bd;
+}
+#viewHint,
+.footnote {
+  font-size: 12px;
+}
+.canvases {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+canvas {
+  width: 100%;
+  height: 240px;
+  border: 1px solid #304054;
+  border-radius: 8px;
+  background: #0b1421;
+}
+.summary {
+  margin-top: 15px;
+  padding: 15px;
+  background: #1a293d;
+  border: 1px solid #304054;
+  border-radius: 8px;
+  white-space: pre-line;
+  overflow-wrap: anywhere;
+}
+.summary.error {
+  border-color: #ed9a81;
+  color: #ffb8a2;
+}
+.summary.success {
+  border-color: #3eaf91;
+}
+.tablewrap {
+  max-height: 310px;
+  overflow: auto;
+  margin-top: 16px;
+}
+table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: 12px;
+}
+th,
+td {
+  padding: 9px;
+  text-align: left;
+  border-bottom: 1px solid #2a394c;
+}
+th {
+  position: sticky;
+  top: 0;
+  background: #142237;
+}
+tbody tr {
+  cursor: pointer;
+}
+tbody tr:hover {
+  background: #20354b;
+}
+td:last-child {
+  max-width: 210px;
+}
+button:focus-visible,
+input:focus-visible,
+select:focus-visible {
+  outline: 2px solid #6ce4c4;
+  outline-offset: 2px;
+}
+@media (max-width: 850px) {
+  main {
+    grid-template-columns: 260px minmax(0, 1fr);
+    gap: 15px;
+    padding: 15px;
+  }
+  .canvases {
+    grid-template-columns: 1fr;
+  }
+  canvas {
+    height: 200px;
+  }
+  .viewbar {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  header {
+    padding: 18px;
+  }
+  h1 {
+    font-size: 21px;
+  }
+}
+@media (max-width: 570px) {
+  main {
+    grid-template-columns: 1fr;
+  }
+  .controls {
+    max-width: none;
+  }
+  header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .canvases {
+    grid-template-columns: 1fr;
+  }
+  .viewbar select {
+    max-width: 240px;
+  }
+}

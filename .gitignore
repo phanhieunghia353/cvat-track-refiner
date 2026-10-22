@@ -1,0 +1,8 @@
+dist/
+.test-results/
+node_modules/
+__pycache__/
+*.log
+# Never include local CVAT data, credentials, or QA screenshots of real jobs.
+private-data/
+backups/

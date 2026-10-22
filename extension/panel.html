@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>CVAT Track Refiner</title>
+    <link rel="stylesheet" href="panel.css" />
+  </head>
+  <body>
+    <header>
+      <div>
+        <span class="eyebrow">CVAT TRACK REFINER · 0.1.0 THỬ NGHIỆM</span>
+        <h1>Tinh chỉnh box bằng nhiều frame</h1>
+        <p>Xe và vật cứng · xử lý trên máy · xem đề xuất trước khi Apply</p>
+      </div>
+      <button id="demo">Thử dữ liệu mẫu</button>
+    </header>
+    <main>
+      <section class="controls" aria-label="Điều khiển phân tích">
+        <button id="read">1 · Đọc job / object đang chọn</button>
+        <p id="context">Mở từ biểu tượng extension trên tab CVAT.</p>
+        <label
+          >Track
+          <select id="track">
+            <option value="">Chưa đọc dữ liệu</option>
+          </select></label
+        >
+        <div class="pair">
+          <label
+            >Frame đầu<input id="start" type="number" min="0" step="1" /></label
+          ><label
+            >Frame cuối<input id="end" type="number" min="0" step="1"
+          /></label>
+        </div>
+        <details>
+          <summary>Tùy chọn phân tích</summary>
+          <label
+            >Số frame mẫu (3–48)<input
+              id="maxFrames"
+              type="number"
+              min="3"
+              max="48"
+              value="24"
+          /></label>
+          <label
+            >Mở rộng vùng tìm mỗi phía (m)<input
+              id="margin"
+              type="number"
+              min="0.3"
+              max="3"
+              step="0.1"
+              value="1.2"
+          /></label>
+          <label
+            >Dịch tối đa (m)<input
+              id="shift"
+              type="number"
+              min="0.05"
+              max="1.5"
+              step="0.05"
+              value="0.7"
+          /></label>
+          <label
+            >Xoay tối đa (độ)<input
+              id="yaw"
+              type="number"
+              min="1"
+              max="30"
+              step="1"
+              value="12"
+          /></label>
+          <label
+            >API base (để trống: tự tìm)<input
+              id="api"
+              placeholder="/api"
+              autocomplete="off"
+          /></label>
+        </details>
+        <div class="pair">
+          <button id="analyze" class="primary">2 · Phân tích</button
+          ><button id="cancel" disabled>Dừng</button>
+        </div>
+        <progress id="progress" hidden></progress>
+        <p id="status" role="status" aria-live="polite">Chưa sửa annotation.</p>
+        <div class="apply-box">
+          <label class="check"
+            ><input id="useSize" type="checkbox" checked />Áp dụng kích thước đo
+            được</label
+          ><label class="check"
+            ><input id="usePose" type="checkbox" checked />Áp dụng tâm và góc đề
+            xuất</label
+          >
+          <p id="draft">Phân tích để có đề xuất.</p>
+          <button id="apply" class="primary" disabled>3 · Apply vào CVAT</button
+          ><button id="undo" disabled>Hoàn tác Apply gần nhất</button>
+        </div>
+        <p id="autosave" class="notice">
+          Apply dùng native Commit: ID trên sidebar có thể đổi. Dùng Undo/Redo
+          gốc của CVAT.
+        </p>
+        <button id="backup" disabled>Tải backup trước Apply</button
+        ><button id="report" disabled>Tải báo cáo phân tích</button>
+      </section>
+      <section class="results" aria-label="Xem trước">
+        <div class="viewbar">
+          <div style="display: flex; align-items: center; gap: 12px">
+            <label for="view" style="white-space: nowrap">Quan sát</label
+            ><select id="view">
+              <option value="fused">Ghép nhiều frame</option>
+            </select>
+          </div>
+          <span><i class="old"></i>Pre-label <i class="new"></i>Đề xuất</span>
+        </div>
+        <p id="viewHint">
+          Chọn một frame để so vị trí/góc; chế độ ghép dùng để so hình dạng và
+          kích thước.
+        </p>
+        <div class="canvases">
+          <canvas aria-label="Top view"></canvas
+          ><canvas aria-label="Side view"></canvas
+          ><canvas aria-label="Front view"></canvas>
+        </div>
+        <div id="summary" class="summary" tabindex="-1">
+          Chưa có kết quả. Bạn có thể dùng dữ liệu mẫu để xem quy trình.
+        </div>
+        <div class="tablewrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Frame</th>
+                <th>Điểm giữ</th>
+                <th>Dịch (m)</th>
+                <th>Góc (°)</th>
+                <th>Kết quả</th>
+              </tr>
+            </thead>
+            <tbody id="rows"></tbody>
+          </table>
+        </div>
+        <p class="footnote">
+          Bản đầu là thuật toán hình học, không phải model AI. Chỉ báo hỗ trợ
+          không phải xác suất đúng. Có thể thêm nhiều keyframe; không tự sửa
+          visibility, class hoặc attribute.
+        </p>
+      </section>
+    </main>
+    <script type="module" src="panel.js"></script>
+  </body>
+</html>
