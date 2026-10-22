@@ -1,4 +1,4 @@
-# CVAT Track Refiner · Experimental 0.3.1
+# CVAT Track Refiner · Experimental 0.3.2
 
 Extension cho Brave / Chrome / Edge: lõi dựng hình bề mặt LiDAR qua nhiều frame, viewer 3D có truy nguồn quan sát và editor box chung chỉnh tay. Thuật toán chạy trên máy bằng ES modules/Web Worker/Canvas2D; không cần model AI, GPU chuyên dụng, Python hoặc server riêng để sử dụng extension.
 
@@ -8,13 +8,14 @@ Extension cho Brave / Chrome / Edge: lõi dựng hình bề mặt LiDAR qua nhi�
 
 ## Bản tải trên GitHub
 
-| Phiên bản                                                                    | Trang release                                                                                             | Trạng thái                                                          |
-| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
-| [v0.3.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.1) | Bản sửa Apply giữ nguyên ID track và khôi phục cả đợt               |
-| [v0.3.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.0) | Bản cũ đổi ID khi Apply: lõi bề mặt, viewer 3D, box chung chỉnh tay |
-| [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Lưu bộ fit cũ; kiểm tra box cuối trên từng frame                    |
-| [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Lưu lịch sử; có lọc bằng chứng nhưng thiếu kiểm tra lại sau căn tâm |
-| [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0)                 | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box                 |
+| Phiên bản                                                                    | Trang release                                                                                             | Trạng thái                                                                   |
+| ---------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
+| [v0.3.2](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.2) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.2) | Chặn lệch ID/thứ tự, audit từng frame, backup từng lượt và kiểm tra sau Save |
+| [v0.3.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.1) | Bản sửa Apply giữ nguyên ID track và khôi phục cả đợt                        |
+| [v0.3.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.3.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.3.0) | Bản cũ đổi ID khi Apply: lõi bề mặt, viewer 3D, box chung chỉnh tay          |
+| [v0.2.1](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.1) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.1) | Lưu bộ fit cũ; kiểm tra box cuối trên từng frame                             |
+| [v0.2.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.2.0) | [Extension, source và SHA256](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.2.0) | Lưu lịch sử; có lọc bằng chứng nhưng thiếu kiểm tra lại sau căn tâm          |
+| [v0.1.0](https://github.com/phanhieunghia353/cvat-track-refiner/tree/v0.1.0) | [Các gói gốc](https://github.com/phanhieunghia353/cvat-track-refiner/releases/tag/v0.1.0)                 | Lưu lịch sử; còn lỗi bị cụm điểm ngoài kéo lệch box                          |
 
 Các bản được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` để cài extension; ZIP `source` gồm mã nguồn và tests. Gói tự động “Source code” do GitHub tạo từ tag có cấu trúc repository, khác gói extension đã đóng sẵn.
 
@@ -27,6 +28,26 @@ Các bản được đánh dấu **prerelease**. Chọn ZIP có chữ `brave` đ
 5. Mở tab job CVAT, bấm biểu tượng **CVAT Track Refiner · Experimental**. Extension chạy theo tab đã bấm biểu tượng, không tự đổi theo tab bạn chuyển tới sau đó.
 
 Không phải nhập hostname hoặc token để cài. Quyền `activeTab`, `scripting`, `storage` chỉ cho phép thao tác tab bạn chủ động mở tool. Máy đích cần Chromium 111+; mục tiêu là Ubuntu, Windows và macOS. Các nền tảng này chưa được kiểm thử đầy đủ; Firefox chưa hỗ trợ bởi gói MV3 này.
+
+## Cập nhật bản đang cài — giữ backup cũ
+
+**Không gỡ extension, không xóa dữ liệu trình duyệt và không Load unpacked từ một đường dẫn mới.** Storage của extension gắn với ID/thư mục đã cài; một bản cài khác không tự đọc được backup cũ.
+
+1. Trong extension cũ, tải backup/log nếu còn mở được. Giữ nguyên thư mục và dữ liệu bản cũ.
+2. Đóng panel của tool. Giải nén v0.3.2 vào thư mục tạm, chép nội dung bên trong `cvat-track-refiner/` đè vào **đúng thư mục extension đã được Brave nạp** (nơi có manifest.json).
+3. Vào `brave://extensions`, bấm **Reload trên thẻ extension**. Không cần reload tab CVAT. Mở lại tool từ tab job và Đọc job.
+4. Dùng **Tải lịch sử backup/audit** để giữ bản sao riêng. Các bản ZIP/release cũ vẫn được lưu để truy vết, không nên dùng để Apply.
+
+## Chốt bảo vệ ID trong v0.3.2
+
+- Chỉ sửa points của native ObjectState trên track hiện có. Không xóa/tạo lại track, không import/Commit thay collection và không gửi API ghi annotation.
+- Trước Apply: bắt buộc đọc annotation server bằng GET cùng phiên đăng nhập, đối chiếu thứ tự và ID mọi object, và kiểm tra client ID khớp thứ tự nạp lại. Object chưa có ID server hoặc phiên có client ID bị khuyết/đổi thứ tự chỉ được xem trước. Thiếu quyền GET hoặc host không tương thích thì dừng trước sửa.
+- Backup trước sửa và log được giữ **riêng từng lượt**, đọc lại storage để xác minh trước khi ghi. Không tự xóa/ghi đè backup cũ để tránh đầy bộ nhớ; hết quota thì chặn Apply. Lượt chưa xác minh hoặc bị khóa không được thử lại sau khi mở lại panel.
+- Sau **mỗi frame**: xuất đầy đủ annotation và kiểm tra ID, thứ tự, keyframe, metadata cùng toàn bộ nội dung ngoài phạm vi. Lệch thì dừng ngay và khóa Apply. Việc audit là đọc; không sửa nhãn khác để thử kiểm tra và không tự ghi rollback khi chưa biết tình trạng.
+- Cuối Apply kiểm tra lại ID server. Đây là trạng thái tại thời điểm kiểm tra, **chưa xác nhận lần Save tương lai**. Sau khi bạn Save hoặc Auto save đã chạy, bấm **Kiểm tra ID sau Save (chỉ đọc)**. Mốc ID/keyframe được lưu trong log để phát hiện lệch sau mở lại trang; thêm/xóa object hợp lệ cũng có thể bị chặn để đối chiếu thủ công.
+- **Tải lịch sử backup/audit** giữ các bản trước Apply, kết quả audit và ảnh chụp phiên hiện tại về máy. File chứa nhãn và địa chỉ job; không tự upload.
+
+Chốt audit phát hiện tác dụng phụ sau lời gọi native đầu tiên; nó không thể bảo đảm trước hành vi của mọi host CVAT tùy biến. Bộ kiểm thử gồm mô phỏng Save/reload và phương thức import lấy từ source CVAT chính thức, **chưa phải kiểm thử trực tiếp host của bạn**. v0.3.2 ngăn tái diễn; nó **không tự khôi phục các ID đã đổi bởi bản cũ**. Không tự động nạp backup hay ghi đè job để sửa ID.
 
 ## Thử không dùng dữ liệu thật
 
@@ -49,12 +70,12 @@ Crop của lõi giữ ngữ cảnh có mask thay vì xóa cứng điểm ít l�
 3. Để mặc định 24 frame mẫu hoặc giảm cho job nặng. Chọn khoảng có nhiều góc nhìn và bấm **Phân tích**.
 4. Xem đám điểm ghép; chọn từng frame ở danh sách hoặc bấm hàng trong bảng để so Top/Side/Front. Cam là pre-label, xanh là đề xuất.
 5. Chọn áp dụng kích thước, tâm/góc, hoặc cả hai. Xem số frame thay đổi và số keyframe thêm.
-6. **Apply vào CVAT** sửa native ObjectState trên track cũ, kiểm tra giữ ID và không reload. Qua frame kiểm tra; Save/Auto save thuộc cơ chế của CVAT.
+6. **Apply vào CVAT** sửa native ObjectState trên track cũ, audit ID/thứ tự sau từng frame và không reload. Qua frame kiểm tra; Save/Auto save thuộc cơ chế của CVAT.
 7. Nút Hoàn tác của tool khôi phục toàn đợt khi snapshot/lịch sử còn khớp. Ctrl+Z của CVAT có thể chỉ trả lại một frame. Với đợt dài vượt lịch sử, hình học/keyframe được khôi phục qua native state; dấu nguồn đã chỉnh của CVAT có thể còn, tool báo rõ.
 
 **Auto save được phép bật.** Sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra bằng mắt. Nếu muốn kiểm tra trước khi lưu, tắt Auto save trong CVAT; tool không tự đổi cài đặt này.
 
-**Từ v0.3.1, Apply giữ track hiện có.** Không dùng các bản cũ nếu cần giữ ID. Client ID, ID server track và ID keyframe cũ được kiểm tra; keyframe mới chưa có ID server sẽ do CVAT cấp khi Save. Source có thể được native CVAT đánh dấu đã chỉnh.
+**Từ v0.3.1, Apply giữ track hiện có.** Không dùng các bản cũ nếu cần giữ ID. Client ID, thứ tự object, ID server track và ID keyframe cũ được kiểm tra; keyframe mới chưa có ID server sẽ do CVAT cấp khi Save. Source có thể được native CVAT đánh dấu đã chỉnh.
 
 ## Phạm vi bản đầu
 

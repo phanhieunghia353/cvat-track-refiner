@@ -37,7 +37,7 @@ Same-origin GET PCD → ArrayBuffer transfer → worker parse → bounded object
                         ↓
                   Canvas preview + diagnostics
                         ↓ explicit Apply only
-              fresh preflight → local backup → native in-place edits → audit/refresh
+              server/native identity preflight → write-once backup + journal/read-back → native edits + per-frame audit → server identity check/refresh
 ```
 
 `cvatBridge` is serialized into the page, so it must be self-contained. Do not close over module imports in that function. Store discovery is isolated from fitting; modify this adapter when CVAT internals change. Extension errors must not silently fall back to REST mutations.
@@ -62,7 +62,7 @@ Current geometry scoring is not an amodal learned shape model, visibility ray tr
 
 Since v0.3.1, Apply never calls `annotations.commit`, `put`, `import`, or `clear`. It prepares native cuboid ObjectStates for every affected frame, validates frame/geometry/lock/server identity against the exact baseline, rechecks the full snapshot, then sets only `points` and calls each local `ObjectState.save()`. Saving points creates a key when needed. Existing clientID, track server ID and original keyframe IDs are part of both validation and audit; none are stripped. Old versions replaced the object and changed clientID; that path has been removed.
 
-Draft metadata, keyframes, geometry limits, visibility and interval are validated before the first edit. After editing, unrelated tracks/shapes/tags and the selected track's IDs/metadata are compared exactly, with only equivalent angles/read noise and CVAT's known native edited-source transition allowed. Audit detects host side effects after mutation; it is not a guarantee that every customized host behaves correctly. Auto save is not disabled and may persist edits; an active Save interrupts further writes. An overlay blocks ordinary user edits during the batch and is always removed.
+Draft metadata, keyframes, geometry limits, visibility and interval are validated before the first edit. After each edited frame, unrelated tracks/shapes/tags/intervals and the selected track's IDs/metadata are compared exactly, with only equivalent angles/read noise and CVAT's known native edited-source transition allowed. Audit detects host side effects after mutation; it is not a guarantee that every customized host behaves correctly. Auto save is not disabled and may persist edits; an active Save interrupts further writes. An overlay blocks ordinary user edits during the batch and is always removed.
 
 Each token is consumed before editing. A failing save may already have changed that frame: the adapter checks both confirmed and attempted prefixes to identify a recoverable partial batch. It never retries the Apply or performs an automatic rollback. A verified partial batch can be restored by the user. Audit failures block dedicated restore; a render-only failure retains an audited restore record.
 
@@ -82,3 +82,11 @@ No absolute paths, hardcoded account IDs, job IDs, required GPU or external serv
 - Reduce dense keys while bounding interpolation error and retaining attribute/visibility keys.
 - Add isolated adapters for filtered frames, more CVAT versions and alternative point-cloud responses.
 - Any learned module should be optional and preserve offline operation and reviewable proposals.
+
+## v0.3.2 identity boundary
+
+The adapter refuses unsaved top-level objects and noncontiguous or out-of-import-order client IDs. Before a mutation it requires a bounded, same-origin annotations GET and identical ordered server IDs for every collection. Each prepared baseline has a receipt bound to the exact full native snapshot and target. The writer repeats the GET and refuses changed server data before the first native save. Existing persisted key IDs are never replaced. Each native save is followed by an exact off-target comparison, ordered client/server identity check and selected-prefix audit. A mismatch quarantines the session; no speculative rollback or replacement fallback runs. Native edited-source changes remain explicitly allowed.
+
+A write-once snapshot and PREPARED journal must be read back from local storage before Apply. An ambiguous call stays PREPARED and blocks retry even after panel closure. Partial/quarantined attempts remain blocked; only an audited explicit restore resolves a partial record. Legacy recovery snapshots are never overwritten. Completed identity records also survive reload; subsequent preflight and the read-only audit control compare them before accepting a new baseline. Storage quota failure aborts before mutation. Journals are not silently rotated.
+
+The read-only verify operation checks native/server identity and, when the live guard exists, off-target content. It distinguishes identity agreement from full session/server content agreement. Missing live guards after reload are supplemented by the persisted last-complete identity journal. It cannot certify arbitrary later external edits, host code or a future Save. User Save/Auto save is never invoked, suppressed or undone by the extension. The overlay blocks ordinary input, not all possible third-party automation. Full-host integration remains unverified.

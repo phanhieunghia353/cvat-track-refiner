@@ -24,16 +24,28 @@ function setup({
   missingSave = false,
   failOnWrite = 1,
   legacyStore = false,
+  serverUnavailable = false,
+  reorderOnWrite = false,
+  serverCorruptOnWrite = false,
 } = {}) {
   const track = makeDemo(count).track;
   track.shapes.forEach((shape) => {
     shape.id = 1000 + shape.frame;
   });
   let data = {
-    tracks: [track, { ...clone(track), clientID: 2, id: 102 }],
+    tracks: [
+      track,
+      {
+        ...clone(track),
+        clientID: 2,
+        id: 102,
+        shapes: track.shapes.map((s) => ({ ...clone(s), id: 2000 + s.frame })),
+      },
+    ],
     shapes: [],
     tags: [],
   };
+  let persisted = null;
   const state = {
     annotation: {
       job: { fetching: false, saving: false },
@@ -137,6 +149,11 @@ function setup({
                       ? "semi-auto"
                       : "manual";
                     if (wrongIdentity) current.clientID = 3;
+                    if (reorderOnWrite) data.tracks.reverse();
+                    if (serverCorruptOnWrite) {
+                      persisted = clone(data);
+                      persisted.tracks[0].id = 999;
+                    }
                     if (corrupt)
                       data.tracks.find((t) => t.clientID === 2).group = 99;
                     entries.push({
@@ -213,11 +230,40 @@ function setup({
     cvatUI: { registerComponent: (fn) => fn({ store }) },
     document: { querySelectorAll: () => [], getElementById: () => null },
     AbortController,
+    TextDecoder,
     setTimeout,
     clearTimeout,
     btoa: (s) => Buffer.from(s, "binary").toString("base64"),
-    fetch: async (url) => {
+    fetch: async (url, options = {}) => {
       urls.push(url);
+      assert.equal(
+        options.method || "GET",
+        "GET",
+        "Only read-only HTTP is permitted",
+      );
+      if (url.includes("/annotations")) {
+        if (serverUnavailable) return { status: 403, ok: false };
+        if (requiresSlash && !url.endsWith("/"))
+          return { status: 0, ok: false, type: "opaqueredirect" };
+        if (missingPrefix && url.startsWith("/cvat/api"))
+          return { status: 404, ok: false };
+        if (!persisted) persisted = clone(data);
+        const bytes = new TextEncoder().encode(JSON.stringify(persisted));
+        let read = false;
+        return {
+          status: 200,
+          ok: true,
+          body: {
+            getReader: () => ({
+              read: async () =>
+                read
+                  ? { done: true }
+                  : ((read = true), { done: false, value: bytes }),
+              cancel: async () => {},
+            }),
+          },
+        };
+      }
       if (!network) throw Error("Unexpected network call");
       if (requiresSlash && !url.split("?")[0].endsWith("/"))
         return { status: 0, ok: false, type: "opaqueredirect" };
@@ -287,6 +333,28 @@ function setup({
     state,
     job,
     urls,
+    get server() {
+      if (!persisted) persisted = clone(data);
+      return persisted;
+    },
+    syncServer() {
+      persisted = clone(data);
+    },
+    // Simulate native CVAT Save preserving existing PKs, followed by a fresh
+    // page import assigning new client IDs in persistent server order.
+    saveAndReload() {
+      persisted = clone(data);
+      for (const kind of ["tags", "shapes", "tracks"])
+        persisted[kind].sort((a, b) => a.id - b.id);
+      let id = 0;
+      data = clone(persisted);
+      for (const kind of ["tags", "shapes", "tracks"])
+        for (const item of data[kind]) item.clientID = ++id;
+      history = { undo: [], redo: [] };
+      entries = [];
+      redoEntries = [];
+      return clone(data);
+    },
     get data() {
       return data;
     },
@@ -321,6 +389,7 @@ function setup({
         baseline,
         track,
         range: [0, 3],
+        receipt: pre.receipt,
         backup: pre.before,
         backupStored: true,
         token: randomUUID(),
@@ -333,13 +402,13 @@ test("snapshot/preflight are read-only; in-place Apply preserves IDs and allows 
     p = await app.plan();
   assert.equal(app.commits, 0);
   app.data.tracks[1].group = 5;
-  p.backup = (
-    await app.call({
-      op: "preflight",
-      context: p.context,
-      baseline: p.baseline,
-    })
-  ).before;
+  const refreshedPre = await app.call({
+    op: "preflight",
+    context: p.context,
+    baseline: p.baseline,
+  });
+  p.backup = refreshedPre.before;
+  p.receipt = refreshedPre.receipt;
   const other = clone(app.data.tracks[1]),
     r = await app.call(p);
   assert.equal(r.ok, true);
@@ -355,7 +424,7 @@ test("snapshot/preflight are read-only; in-place Apply preserves IDs and allows 
   assert.equal(app.commits, 0);
   assert.ok(app.writes > 0);
   assert.equal(app.saves, 0);
-  assert.equal(app.urls.length, 0);
+  assert.ok(app.urls.every((url) => url.includes("/annotations")));
   assert.deepEqual(
     app.data.tracks.find((t) => t.clientID === 2),
     other,
@@ -424,7 +493,7 @@ test("post-write audit and render failures never retry a mutation", async () => 
       p = await app.plan(),
       r = await app.call(p);
     assert.equal(r.ok, true);
-    assert.equal(r.applied, true);
+    assert.equal(r.applied, options.corrupt ? null : true);
     assert.ok(r.warning);
     assert.equal(app.commits, 0);
     assert.ok(app.writes > 0);
@@ -513,7 +582,7 @@ test("navigation after a successful native save remains an applied outcome with 
     p = await app.plan(),
     r = await app.call(p);
   assert.equal(r.ok, true);
-  assert.equal(r.applied, true);
+  assert.equal(r.applied, null);
   assert.equal(r.audited, false);
   assert.ok(r.warning);
   assert.equal(app.commits, 0);
@@ -604,6 +673,7 @@ test("reconstruction plus user box updates the same identity through native stat
     backup: pre.before,
     backupStored: true,
     token: randomUUID(),
+    receipt: pre.receipt,
   });
   assert.equal(reply.ok, true, reply.error);
   assert.equal(reply.applied, true);
@@ -611,7 +681,7 @@ test("reconstruction plus user box updates the same identity through native stat
   assert.equal(app.commits, 0);
   assert.ok(app.writes > 0);
   assert.equal(app.saves, 0);
-  assert.equal(app.urls.length, 0);
+  assert.ok(app.urls.every((url) => url.includes("/annotations")));
   assert.deepEqual(
     app.data.tracks.find((t) => t.clientID === 2),
     other,
@@ -627,6 +697,11 @@ test("regression: native Apply/Undo/Redo preserve selected client/server/keyfram
     points: Array(16).fill(1),
   });
   app.data.tags.push({ id: 900, clientID: 9, frame: 0, label_id: 1 });
+  app.data.tags[0].clientID = 1;
+  app.data.shapes[0].clientID = 2;
+  app.data.tracks[0].clientID = 3;
+  app.data.tracks[1].clientID = 4;
+  app.state.annotation.annotations.activatedStateID = 3;
   const p = await app.plan(),
     before = clone(app.data);
   const r = await app.call(p);
@@ -652,7 +727,7 @@ test("regression: native Apply/Undo/Redo preserve selected client/server/keyfram
   assert.deepEqual(app.data, applied);
   assert.equal(app.commits, 0);
   assert.equal(app.saves, 0);
-  assert.equal(app.urls.length, 0);
+  assert.ok(app.urls.every((url) => url.includes("/annotations")));
 });
 
 test("all native states must be verifiable before any write; missing native save has no Commit fallback", async () => {
@@ -820,4 +895,212 @@ test("updating from v0.3.0 reuses only the live store, isolates legacy undo and 
   assert.equal(app.overlays, 0);
   assert.equal(app.listeners, 0);
   assert.equal(app.commits, 0);
+});
+
+test("unreadable server identity fails before any native mutation", async () => {
+  const app = setup({ serverUnavailable: true });
+  const snapshot = await app.call({ op: "snapshot" });
+  const pre = await app.call({
+    op: "preflight",
+    baseline: snapshot.annotations.tracks[0],
+    context: snapshot.context,
+  });
+  assert.equal(pre.ok, false);
+  assert.match(pre.error, /ID trên server/);
+  assert.equal(app.writes, 0);
+  assert.equal(app.commits, 0);
+});
+test("reordering only the selected track is caught immediately and quarantines later Apply", async () => {
+  const app = setup({ count: 8, reorderOnWrite: true }),
+    p = await app.plan();
+  p.range = [0, 7];
+  p.track.shapes.forEach((s) => {
+    s.points[6] = 4.1;
+  });
+  const r = await app.call(p);
+  assert.equal(r.applied, null);
+  assert.equal(r.quarantined, true);
+  assert.equal(r.audited, false);
+  assert.equal(
+    app.writes,
+    1,
+    "Stop at the first changed frame, not at batch end",
+  );
+  const s = await app.call({ op: "snapshot" });
+  const pre = await app.call({
+    op: "preflight",
+    baseline: s.annotations.tracks.find((t) => t.clientID === 1),
+  });
+  assert.equal(pre.ok, false);
+  assert.equal(app.writes, 1);
+  assert.equal(app.commits, 0);
+});
+test("a side effect on an unrelated label stops the batch after one native write", async () => {
+  const app = setup({ count: 8, corrupt: true }),
+    p = await app.plan();
+  p.range = [0, 7];
+  p.track.shapes.forEach((s) => {
+    s.points[6] = 4.1;
+  });
+  const r = await app.call(p);
+  assert.equal(r.quarantined, true);
+  assert.equal(app.writes, 1);
+  assert.equal(r.identityPreserved, false);
+});
+test("a server-side reidentification cannot be reported as an audited success", async () => {
+  const app = setup({ serverCorruptOnWrite: true }),
+    p = await app.plan();
+  const r = await app.call(p);
+  assert.equal(r.applied, null);
+  assert.equal(r.audited, false);
+  assert.equal(r.quarantined, true);
+  assert.match(r.warning, /ID server|thứ tự object/);
+  assert.equal(app.saves, 0);
+});
+test("read-only verification distinguishes unsaved geometry from saved identity", async () => {
+  const app = setup(),
+    p = await app.plan();
+  assert.equal((await app.call(p)).audited, true);
+  const unsaved = await app.call({ op: "verifyIdentity" });
+  assert.equal(unsaved.serverIdentityVerified, true);
+  assert.equal(unsaved.serverContentMatchesSession, false);
+  app.syncServer();
+  const saved = await app.call({ op: "verifyIdentity" });
+  assert.equal(saved.serverContentMatchesSession, true);
+  assert.equal(app.saves, 0);
+  assert.equal(app.commits, 0);
+});
+test("80-object native Apply plus Save/reload preserves every client/server ID and object order", async () => {
+  const app = setup({ count: 4 });
+  const template = clone(app.data.tracks[0]);
+  app.data.tracks.splice(
+    0,
+    app.data.tracks.length,
+    ...Array.from({ length: 80 }, (_, i) => ({
+      ...clone(template),
+      clientID: i + 1,
+      id: 1001 + i,
+      shapes: template.shapes.map((s) => ({
+        ...clone(s),
+        id: 10000 + i * 10 + s.frame,
+      })),
+    })),
+  );
+  const snapshot = await app.call({ op: "snapshot" }),
+    baseline = clone(snapshot.annotations.tracks[22]),
+    target = clone(baseline);
+  target.shapes.forEach((s) => {
+    s.points[6] += 0.1;
+  });
+  const before = clone(app.data),
+    pre = await app.call({
+      op: "preflight",
+      baseline,
+      context: snapshot.context,
+    });
+  const reply = await app.call({
+    op: "apply",
+    baseline,
+    track: target,
+    range: [0, 3],
+    backup: pre.before,
+    backupStored: true,
+    receipt: pre.receipt,
+    token: randomUUID(),
+  });
+  assert.equal(reply.audited, true, reply.warning);
+  assert.equal(app.commits, 0);
+  const reloaded = app.saveAndReload();
+  assert.deepEqual(
+    reloaded.tracks.map((t) => [t.clientID, t.id]),
+    before.tracks.map((t) => [t.clientID, t.id]),
+  );
+  assert.deepEqual(
+    reloaded.tracks.filter((t) => t.id !== baseline.id),
+    before.tracks.filter((t) => t.id !== baseline.id),
+  );
+  assert.deepEqual(
+    reloaded.tracks[22].shapes.map((s) => s.id),
+    baseline.shapes.map((s) => s.id),
+  );
+});
+
+test("missing/stale preflight receipt never reaches a native writer", async () => {
+  const app = setup(),
+    p = await app.plan();
+  delete p.receipt;
+  assert.equal((await app.call(p)).ok, false);
+  p.receipt = "stale";
+  assert.equal((await app.call(p)).ok, false);
+  assert.equal(app.writes, 0);
+});
+test("changed server data between preflight and Apply stops before any write", async () => {
+  const app = setup(),
+    p = await app.plan();
+  app.server.tracks[1].group = 7;
+  const r = await app.call(p);
+  assert.equal(r.ok, false);
+  assert.match(r.error, /server vừa đổi/);
+  assert.equal(app.writes, 0);
+});
+test("gapped client IDs are preview-only rather than silently changing numbering after reload", async () => {
+  const app = setup();
+  app.data.tracks[1].clientID = 3;
+  const snapshot = await app.call({ op: "snapshot" });
+  assert.equal(snapshot.ok, true);
+  const pre = await app.call({
+    op: "preflight",
+    baseline: snapshot.annotations.tracks[0],
+  });
+  assert.equal(pre.ok, false);
+  assert.match(pre.error, /thứ tự nạp lại/);
+  assert.equal(app.writes, 0);
+});
+test("read-only post-Save audit catches changed existing key IDs and sends no mutation", async () => {
+  const app = setup(),
+    p = await app.plan();
+  assert.equal((await app.call(p)).audited, true);
+  const writes = app.writes;
+  app.server.tracks[0].shapes[0].id = 7777;
+  const r = await app.call({ op: "verifyIdentity" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /keyframe/);
+  assert.equal(app.writes, writes);
+  assert.equal(app.saves, 0);
+});
+test("read-only audit also catches unrelated content changed since the audited Apply", async () => {
+  const app = setup(),
+    p = await app.plan();
+  assert.equal((await app.call(p)).audited, true);
+  const writes = app.writes;
+  app.data.tracks[1].group = 88;
+  const r = await app.call({ op: "verifyIdentity" });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /ngoài track/);
+  assert.equal(app.writes, writes);
+});
+
+test("native/server keyframe ID mismatch blocks preflight without modifying geometry", async () => {
+  const app = setup();
+  app.server.tracks[0].shapes[0].id = 8888;
+  const snap = await app.call({ op: "snapshot" });
+  const pre = await app.call({
+    op: "preflight",
+    baseline: snap.annotations.tracks[0],
+  });
+  assert.equal(pre.ok, false);
+  assert.match(pre.error, /keyframe/);
+  assert.equal(app.writes, 0);
+});
+
+test("reopening the panel can recover only the still-audited explicit Undo record", async () => {
+  const app = setup(),
+    p = await app.plan();
+  assert.equal((await app.call(p)).audited, true);
+  const opened = await app.call({ op: "snapshot" });
+  assert.equal(opened.canUndo, true);
+  assert.equal(opened.lastToken, p.token);
+  app.data.tracks[1].group = 99;
+  assert.equal((await app.call({ op: "snapshot" })).canUndo, false);
+  assert.equal(app.saves, 0);
 });

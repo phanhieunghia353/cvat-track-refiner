@@ -9,7 +9,7 @@
   <body>
     <header>
       <div>
-        <span class="eyebrow">CVAT TRACK REFINER · 0.3.1 THỬ NGHIỆM</span>
+        <span class="eyebrow">CVAT TRACK REFINER · 0.3.2 THỬ NGHIỆM</span>
         <h1>Dựng hình xe qua nhiều frame</h1>
         <p>
           Lõi bề mặt · truy nguồn quan sát · box chung chỉnh tay · xử lý trên
@@ -175,6 +175,10 @@
           Apply sửa track hiện có và kiểm tra giữ ID. Nút Hoàn tác của tool trả
           lại toàn đợt; Ctrl+Z của CVAT có thể chỉ trả lại một frame.
         </p>
+        <button id="verifyIdentity" disabled>
+          Kiểm tra ID sau Save (chỉ đọc)
+        </button>
+        <button id="recoveryLog" disabled>Tải lịch sử backup/audit</button>
         <button id="backup" disabled>Tải backup trước Apply</button
         ><button id="report" disabled>Tải báo cáo phân tích</button>
         <button id="diagnostic" disabled>Tải chẩn đoán có điểm crop</button>

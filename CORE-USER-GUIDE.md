@@ -1,4 +1,4 @@
-# Dùng lõi dựng hình v0.3.1
+# Dùng lõi dựng hình v0.3.2
 
 Đây là bản thử đầu của lõi độc lập với box. Nó căn và giữ các bề mặt **quan sát được**, chưa nhận dạng thân xe/phụ kiện và chưa hoàn thiện phần bị khuất. Không dùng độ đẹp của hình ghép để thay việc kiểm tra từng frame.
 
@@ -59,3 +59,13 @@ Các file chứa tọa độ là dữ liệu job. Chúng chỉ được lưu v�
 - Điểm fit/kiểm tra là các tập chỉ số khác nhau trong cùng scan. Đây là kiểm tra nội bộ, không phải đánh giá độc lập độ chính xác trên dữ liệu thật.
 - Frame ở giữa hai mẫu căn được có thể nhận nội suy trong draft; chưa được xem như đã tái dựng/kiểm chứng trực tiếp.
 - Giữ **Bộ fit box cũ (đối chiếu)** riêng để so sánh. Chế độ này vẫn có các giới hạn lấy biên đã ghi nhận.
+
+## Bảo vệ ID và log v0.3.2
+
+Trước Apply phải đọc được annotation server và xác minh ID/thứ tự. Chưa Save object mới, ID phiên bị khuyết/đổi thứ tự, thiếu quyền GET, storage đầy hoặc có lượt lỗi chưa xác minh đều chặn ghi; phân tích/xem trước vẫn dùng được. Không bấm Save chỉ để vượt chốt khi chưa hiểu thông báo.
+
+Mỗi frame được audit đầy đủ ngay sau sửa. Sau Save/Auto save, bấm **Kiểm tra ID sau Save (chỉ đọc)**. Nút chỉ GET và đọc phiên/storage; không thử sửa nhãn để kiểm tra. Thông báo Apply thành công chỉ xác nhận kiểm tra tại thời điểm đó. Không bảo đảm cho hành vi tương lai của host tùy biến.
+
+**Tải lịch sử backup/audit** dùng được sau mở lại panel: các snapshot/log từng lượt không bị tự ghi đè. File này chứa annotation và URL/ngữ cảnh job; giữ riêng, không đưa lên repo Public. Nếu update, chép bản mới vào đúng thư mục cũ và Reload **extension**, giữ nguyên ID/storage; không gỡ cài đặt hoặc Load unpacked từ thư mục khác. Xem README.
+
+Bản này không sửa lại ID đã mất trong sự cố trước. Không tự import backup và không tự ghi đè toàn bộ job để khôi phục.

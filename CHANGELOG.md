@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.2 — identity/order guard and persistent audit
+
+- Require read-only server identity preflight, fresh receipt and unchanged server baseline before native writes. Block unsupported ID inventories and out-of-import-order client IDs.
+- Audit the full ordered identity map and unrelated content after every frame; quarantine on the first side effect. No automatic retry or speculative rollback.
+- Preserve write-once backups/journals per attempt, verify local read-back and block unresolved writes across reopening. Keep the original legacy backup.
+- Add read-only post-Save ID verification and recovery-log export, persistent previous-identity comparison and safer native Undo precheck.
+- Add Save/reload and upstream-import contract regressions. No automatic restoration of already changed IDs; real hosted integration remains unverified.
+
 ## 0.3.1 — Preserve track identity during Apply
 
 - Remove the replacement-Commit writer. Prepare native ObjectStates and edit only points on the existing track, with exact client/server/original-keyframe ID validation and audit.

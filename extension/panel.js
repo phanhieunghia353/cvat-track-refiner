@@ -10,7 +10,12 @@ import { holdsGeometry } from "./fitting/validation.js";
 import { drawPreview } from "./ui/preview.js";
 import { makeDemo } from "./demo/generate.js";
 import { makeClutteredTrack } from "./demo/clutter.js";
-import { applyProposal } from "./cvat/transaction.js";
+import {
+  applyProposal,
+  recoveryPrefix,
+  checkPreviousIdentity,
+  markRestored,
+} from "./cvat/transaction.js";
 
 const $ = (id) => document.getElementById(id),
   tabId = Number(new URL(location.href).searchParams.get("tab"));
@@ -25,7 +30,8 @@ let session = null,
   generation = 0,
   consumed = true,
   backup = null,
-  canUndo = false;
+  canUndo = false,
+  lastJournalKey = null;
 const canvases = [...document.querySelectorAll(".canvases canvas")];
 const corePanel = new CorePanel($, canvases, {
   changed: () => {
@@ -84,7 +90,9 @@ function controls() {
     consumed ||
     (!isCore() && !($("useSize").checked || $("usePose").checked));
   $("undo").disabled = busy || !!demo || !canUndo;
-  $("backup").disabled = !backup;
+  $("backup").disabled = busy || !backup;
+  $("verifyIdentity").disabled = busy || !!demo || !session;
+  $("recoveryLog").disabled = busy || !!demo || !session;
   $("report").disabled = !result;
   $("diagnostic").disabled = !result;
   for (const id of [
@@ -237,14 +245,28 @@ function renderSession() {
     : `Job ${session.context.jobId} · frame ${session.start}–${session.end}`;
   $("autosave").textContent = demo
     ? "Dữ liệu tổng hợp; Apply bị khóa."
-    : `Auto save: ${session.autoSave === true ? "BẬT — sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra" : session.autoSave === false ? "TẮT — bạn tự Save sau khi kiểm tra" : "chưa xác định — CVAT có thể tự lưu nếu được cấu hình"}. Giữ ID track; hoàn tác toàn đợt bằng nút của tool.`;
+    : `Auto save: ${session.autoSave === true ? "BẬT — sau Apply, CVAT có thể tự lưu trước khi bạn kiểm tra" : session.autoSave === false ? "TẮT — bạn tự Save sau khi kiểm tra" : "chưa xác định — CVAT có thể tự lưu nếu được cấu hình"}. Apply yêu cầu đối chiếu ID/thứ tự; kiểm tra lại sau Save bằng nút chỉ đọc.`;
   pickTrack();
   $("status").textContent = "Đã đọc dữ liệu. Phân tích chưa sửa annotation.";
 }
 async function read() {
   demo = null;
   session = await bridge({ op: "snapshot" }, null);
-  canUndo = false;
+  canUndo = !!session.canUndo;
+  lastJournalKey = null;
+  const entries = await chrome.storage.local.get(null);
+  const prefix = recoveryPrefix(session.context);
+  const candidateJournal = prefix + "journal:" + session.lastToken;
+  if (canUndo && entries[candidateJournal]) lastJournalKey = candidateJournal;
+  backup =
+    Object.entries(entries)
+      .filter(([key]) => key.startsWith(prefix + "before:"))
+      .map(([, value]) => value)
+      .sort((a, b) => b.savedAt.localeCompare(a.savedAt))[0] ||
+    entries[
+      `track-refiner-backup:${session.context.origin}${session.context.prefix}:${session.context.jobId}`
+    ] ||
+    null;
   renderSession();
   show(
     "Chọn track và khoảng frame rồi Phân tích. Các sửa chưa Save được đọc từ phiên CVAT.",
@@ -528,8 +550,9 @@ $("apply").onclick = () =>
     consumed = true;
     canUndo = false;
     controls();
-    const { reply } = await applyProposal({
+    const { reply, journalKey } = await applyProposal({
       call: bridge,
+      apiBase: $("api").value.trim(),
       storage: chrome.storage.local,
       baseline,
       proposal,
@@ -537,8 +560,9 @@ $("apply").onclick = () =>
         backup = value;
       },
     });
+    lastJournalKey = journalKey;
     canUndo = reply.canUndo;
-    if (reply.applied !== true) {
+    if (reply.applied !== true || !reply.audited) {
       show("CHƯA XÁC ĐỊNH KẾT QUẢ APPLY\n" + reply.warning, "error");
       $("status").textContent = reply.canUndo
         ? "Apply dừng giữa chừng. Có thể dùng Hoàn tác của tool; không Apply lặp."
@@ -546,7 +570,7 @@ $("apply").onclick = () =>
       return;
     }
     show(
-      `ĐÃ APPLY VÀO PHIÊN CVAT\nCVAT ID giữ nguyên: ${reply.identityPreserved ? reply.clientID : "chưa xác minh"}\n${reply.audited ? `Đã đối chiếu ${reply.otherTracks} track khác cùng shapes/tags.` : "Chưa xác nhận được dữ liệu sau Apply; kiểm tra cảnh báo."}\n${reply.autoSave === false ? "Tool không gọi Save server. Kiểm tra bằng Next và tự Save khi muốn." : "Auto save đang bật hoặc chưa xác định: CVAT có thể tự lưu."}\n${reply.warning || "Nút Hoàn tác của tool trả lại toàn đợt. Ctrl+Z của CVAT có thể chỉ trả lại một frame."}`,
+      `ĐÃ SỬA TRONG BỘ NHỚ CVAT\nCVAT ID: ${reply.clientID} · server #${reply.serverID}\nĐã kiểm tra ID/thứ tự và ${reply.otherTracks} track khác cùng shapes/tags/intervals sau từng frame.\nID server khớp tại lúc kiểm tra; chưa xác minh lần Save tiếp theo.\n${reply.autoSave === false ? "Tool không gọi Save. Xem bằng Next rồi tự Save khi muốn." : "Auto save đang bật hoặc chưa xác định: CVAT có thể tự lưu."}\nSau Save, bấm Kiểm tra ID sau Save (chỉ đọc).\n${reply.warning || "Nút Hoàn tác của tool trả lại toàn đợt khi lịch sử còn khớp."}`,
       reply.warning ? "error" : "success",
     );
     $("status").textContent =
@@ -554,8 +578,9 @@ $("apply").onclick = () =>
   });
 $("undo").onclick = () =>
   run(async () => {
-    const r = await bridge({ op: "undo" });
-    canUndo = false;
+    const r = await bridge({ op: "undo", apiBase: $("api").value.trim() });
+    canUndo = r.canUndo ?? false;
+    await markRestored(chrome.storage.local, lastJournalKey, r);
     show(
       r.warning ||
         "Đã hoàn tác toàn bộ hình học/keyframe của lần Apply, giữ nguyên ID. Auto save/Save vẫn thuộc CVAT.",
@@ -568,6 +593,63 @@ $("backup").onclick = () =>
     `cvat-track-refiner-job-${backup.context.jobId}-before.json`,
     backup,
   );
+// These controls only read annotation/session/storage. They never call Save,
+// replace collections, restore a backup or change CVAT settings.
+$("verifyIdentity").onclick = () =>
+  run(async () => {
+    const audit = await bridge({
+      op: "verifyIdentity",
+      apiBase: $("api").value.trim(),
+    });
+    checkPreviousIdentity(
+      await chrome.storage.local.get(null),
+      recoveryPrefix(session.context),
+      audit,
+    );
+    show(
+      `KIỂM TRA ID — CHỈ ĐỌC\nID/thứ tự trong phiên khớp server và mốc kiểm tra được giữ.\n${audit.serverContentMatchesSession ? "Nội dung phiên khớp server tại thời điểm kiểm tra." : "Nội dung phiên khác server: có thể còn sửa chưa Save hoặc khác biệt tuần tự hóa; chưa xác nhận đã lưu."}\nKhông gửi cập nhật hoặc khôi phục dữ liệu.`,
+      audit.serverContentMatchesSession ? "success" : "",
+    );
+  });
+$("recoveryLog").onclick = () =>
+  run(async () => {
+    const entries = await chrome.storage.local.get(null),
+      prefix = recoveryPrefix(session.context);
+    const legacy = `track-refiner-backup:${session.context.origin}${session.context.prefix}:${session.context.jobId}`;
+    const records = Object.fromEntries(
+      Object.entries(entries).filter(
+        ([key]) => key.startsWith(prefix) || key === legacy,
+      ),
+    );
+    let current, audit;
+    try {
+      current = await bridge({ op: "snapshot" });
+    } catch (error) {
+      current = { error: error.message };
+    }
+    try {
+      audit = await bridge({
+        op: "verifyIdentity",
+        apiBase: $("api").value.trim(),
+      });
+    } catch (error) {
+      audit = { error: error.message };
+    }
+    download(
+      `cvat-track-refiner-job-${session.context.jobId}-recovery-log.json`,
+      {
+        format: "cvat-track-refiner-recovery-export/v2",
+        exportedAt: new Date().toISOString(),
+        context: session.context,
+        records,
+        current,
+        audit,
+      },
+    );
+    show(
+      "Đã tải backup/log và ảnh chụp phiên về máy. File chứa nhãn; không tự upload và chưa khôi phục gì.",
+    );
+  });
 async function rebuildCore(options) {
   if (!isCore()) return;
   const observations = result.observations,

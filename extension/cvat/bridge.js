@@ -27,7 +27,7 @@ export async function cvatBridge(request) {
     );
     if (!match) throw Error("Mở extension từ tab job CVAT LiDAR.");
     // Do not reuse v1's replacement-Commit undo records after extension update.
-    const slot = Symbol.for("cvat.trackRefiner.v2");
+    const slot = Symbol.for("cvat.trackRefiner.v3");
     memory = globalThis[slot] || (globalThis[slot] = {});
     if (request.op === "abort") {
       memory.abort?.abort();
@@ -37,7 +37,9 @@ export async function cvatBridge(request) {
     // replacement-Commit history, tokens or context. Updating the extension
     // must not require reloading the user's CVAT job.
     let store =
-      memory.store || globalThis[Symbol.for("cvat.trackRefiner.v1")]?.store;
+      memory.store ||
+      globalThis[Symbol.for("cvat.trackRefiner.v2")]?.store ||
+      globalThis[Symbol.for("cvat.trackRefiner.v1")]?.store;
     if (store) memory.store = store;
     if (!store && typeof globalThis.cvatUI?.registerComponent === "function") {
       globalThis.cvatUI.registerComponent(({ store: s }) => {
@@ -109,6 +111,11 @@ export async function cvatBridge(request) {
         latest: null,
         route: null,
         metadataBase: null,
+        annotationBase: null,
+        prepared: null,
+        quarantine: null,
+        serverGuard: null,
+        recoveryRequired: false,
       });
     }
     const context = {
@@ -175,6 +182,182 @@ export async function cvatBridge(request) {
         payload: { states, history },
       });
     }
+    const kinds = ["tags", "shapes", "tracks", "intervals"];
+    const orderOf = (data, client = true) =>
+      Object.fromEntries(
+        kinds.map((kind) => [
+          kind,
+          (data[kind] || []).map((object) =>
+            client ? [object.clientID, object.id] : object.id,
+          ),
+        ]),
+      );
+    function checkInventory(data, client = true) {
+      const clients = new Set(),
+        keyIDs = new Set();
+      for (const kind of kinds) {
+        if (data[kind] !== undefined && !Array.isArray(data[kind]))
+          throw Error("Collection annotation không hợp lệ.");
+        const ids = new Set();
+        for (const object of data[kind] || []) {
+          if (
+            !Number.isInteger(object.id) ||
+            object.id < 1 ||
+            ids.has(object.id)
+          )
+            throw Error(
+              "ID server thiếu/trùng. Chưa thể bảo vệ thứ tự object; chưa sửa.",
+            );
+          ids.add(object.id);
+          if (client) {
+            if (
+              !Number.isInteger(object.clientID) ||
+              object.clientID < 1 ||
+              clients.has(object.clientID)
+            )
+              throw Error("Client ID thiếu/trùng; chưa sửa.");
+            clients.add(object.clientID);
+          }
+          if (kind === "tracks") {
+            let previous = -1;
+            for (const shape of object.shapes || []) {
+              if (!Number.isInteger(shape.frame) || shape.frame <= previous)
+                throw Error("Thứ tự keyframe không hợp lệ; chưa sửa.");
+              previous = shape.frame;
+              if (shape.id !== undefined && shape.id !== null) {
+                if (
+                  !Number.isInteger(shape.id) ||
+                  shape.id < 1 ||
+                  keyIDs.has(shape.id)
+                )
+                  throw Error("ID keyframe thiếu/trùng; chưa sửa.");
+                keyIDs.add(shape.id);
+              }
+            }
+          }
+        }
+      }
+    }
+    const savedKeysOf = (data) =>
+      (data.tracks || []).flatMap((track) =>
+        (track.shapes || [])
+          .filter((shape) => Number.isInteger(shape.id))
+          .map((shape) => [track.id, shape.frame, shape.id]),
+      );
+    function assertServerIdentity(reference, actual) {
+      checkInventory(actual, false);
+      if (!equal(orderOf(reference, false), orderOf(actual, false)))
+        throw Error(
+          "ID server hoặc thứ tự object đã đổi; khóa Apply, không tự khôi phục/ghi tiếp.",
+        );
+      const tracks = new Map((actual.tracks || []).map((t) => [t.id, t]));
+      for (const track of reference.tracks || []) {
+        const keys = new Map(
+          (tracks.get(track.id)?.shapes || []).map((s) => [s.frame, s.id]),
+        );
+        for (const shape of track.shapes || [])
+          if (Number.isInteger(shape.id) && keys.get(shape.frame) !== shape.id)
+            throw Error("ID keyframe đã lưu thay đổi; khóa Apply.");
+      }
+    }
+    function serverContent(data) {
+      const strip = (value) =>
+        Array.isArray(value)
+          ? value.map(strip)
+          : value && typeof value === "object"
+            ? Object.fromEntries(
+                Object.entries(value)
+                  .filter(([key]) => !["clientID", "uiId"].includes(key))
+                  .map(([key, v]) => [key, strip(v)]),
+              )
+            : value;
+      return Object.fromEntries(
+        kinds.map((kind) => [kind, strip(data[kind] || [])]),
+      );
+    }
+    async function serverAnnotations() {
+      const override = request.apiBase || "";
+      if (
+        override &&
+        (!/^\/[a-zA-Z0-9_./-]+$/.test(override) ||
+          override.startsWith("//") ||
+          override.includes(".."))
+      )
+        throw Error("API base phải là đường dẫn cùng server.");
+      const bases = [
+        ...new Set(
+          (override
+            ? [override.replace(/\/$/, "")]
+            : [
+                memory.annotationBase,
+                memory.route,
+                context.prefix + "/api",
+                "/api",
+              ]
+          ).filter(Boolean),
+        ),
+      ];
+      const controller = new AbortController(),
+        timer = setTimeout(() => controller.abort(), 15000);
+      try {
+        for (const base of bases)
+          for (const slash of ["", "/"]) {
+            const response = await fetch(
+              `${base}/jobs/${job.id}/annotations${slash}`,
+              {
+                method: "GET",
+                credentials: "same-origin",
+                redirect: "manual",
+                signal: controller.signal,
+                cache: "no-store",
+              },
+            );
+            if (response.status === 404 || response.type === "opaqueredirect")
+              continue;
+            if (!response.ok)
+              throw Error(
+                `Không đọc được ID trên server: HTTP ${response.status}. Chưa sửa.`,
+              );
+            const reader = response.body?.getReader();
+            if (!reader)
+              throw Error(
+                "Không đọc được snapshot server có giới hạn kích thước; chưa sửa.",
+              );
+            const chunks = [];
+            let length = 0;
+            while (true) {
+              const { done, value } = await reader.read();
+              if (done) break;
+              length += value.length;
+              if (length > 32 * 1024 * 1024) {
+                await reader.cancel();
+                throw Error("Snapshot server vượt 32 MB; chưa sửa.");
+              }
+              chunks.push(value);
+            }
+            const bytes = new Uint8Array(length);
+            let offset = 0;
+            for (const chunk of chunks) {
+              bytes.set(chunk, offset);
+              offset += chunk.length;
+            }
+            const data = JSON.parse(new TextDecoder().decode(bytes));
+            if (
+              !["tracks", "shapes", "tags"].every((k) => Array.isArray(data[k]))
+            )
+              throw Error("Server không trả annotation CVAT hợp lệ; chưa sửa.");
+            checkInventory(data, false);
+            ready();
+            memory.annotationBase = base;
+            return data;
+          }
+        throw Error(
+          "Không xác minh được ID trên server; Apply bị chặn. Kiểm tra API base.",
+        );
+      } finally {
+        clearTimeout(timer);
+      }
+    }
     // Read angles may be normalized by CVAT. Accept only equivalent rotations
     // and floating point read noise; metadata and existing IDs stay exact.
     const samePoints = (a, b) =>
@@ -207,8 +390,7 @@ export async function cvatBridge(request) {
         b = clone(desired);
       // The sole allowed metadata change is CVAT's native edited-source mark.
       b.source = a.source;
-      a.shapes.sort((x, y) => x.frame - y.frame);
-      b.shapes.sort((x, y) => x.frame - y.frame);
+
       if (a.shapes.length !== b.shapes.length) return false;
       for (let i = 0; i < a.shapes.length; i++) {
         if (!samePoints(a.shapes[i].points, b.shapes[i].points)) return false;
@@ -321,6 +503,15 @@ export async function cvatBridge(request) {
       token,
       restoring = false,
     ) {
+      checkInventory(before);
+      const serverReference = restoring
+        ? memory.serverGuard?.server
+        : memory.prepared?.server;
+      if (!serverReference) throw Error("Chưa xác minh ID server; chưa sửa.");
+      const serverNow = await serverAnnotations();
+      assertServerIdentity(serverReference, serverNow);
+      if (!restoring && !equal(serverNow, serverReference))
+        throw Error("Dữ liệu server vừa đổi sau preflight; chưa sửa.");
       const startHistory = clone(await job.actions.get());
       if (!equal(await exported(), before))
         throw Error("Annotation vừa thay đổi; chưa sửa.");
@@ -331,6 +522,30 @@ export async function cvatBridge(request) {
       let completed = 0,
         attempted = 0,
         writeError;
+      const originalTarget = before.tracks.find(
+        (t) => t.clientID === desired.clientID,
+      );
+      const offTarget = canonical(without(before, desired.clientID));
+      const nativeOrder = orderOf(before);
+      const expectedTarget = clone(originalTarget);
+      const expectedKeys = new Map(
+        expectedTarget.shapes.map((shape) => [shape.frame, shape]),
+      );
+      const auditPrefix = (snapshot) => {
+        checkInventory(snapshot);
+        if (
+          !equal(nativeOrder, orderOf(snapshot)) ||
+          canonical(without(snapshot, desired.clientID)) !== offTarget ||
+          !sameTarget(
+            snapshot.tracks.find((t) => t.clientID === desired.clientID),
+            expectedTarget,
+            originalTarget.source,
+          )
+        )
+          throw Error(
+            "Audit từng frame phát hiện đổi ID/thứ tự/nội dung ngoài phạm vi. Khóa Apply.",
+          );
+      };
       blockUI();
       for (const edit of edits) {
         try {
@@ -340,6 +555,17 @@ export async function cvatBridge(request) {
           else edit.state.points = [...edit.next.points];
           await edit.state.save(); // local ObjectState.save, never annotations.save
           completed++;
+          if (edit.next) expectedKeys.set(edit.frame, clone(edit.next));
+          else expectedKeys.delete(edit.frame);
+          expectedTarget.shapes = [...expectedKeys.values()].sort(
+            (a, b) => a.frame - b.frame,
+          );
+          try {
+            auditPrefix(await exported());
+          } catch (error) {
+            memory.quarantine = error.message;
+            throw error;
+          }
         } catch (error) {
           writeError = error;
           break;
@@ -371,6 +597,7 @@ export async function cvatBridge(request) {
           ? [expectedAfter(completed), expectedAfter(attempted)]
           : [desired];
         if (
+          !equal(nativeOrder, orderOf(after)) ||
           !equal(
             without(before, desired.clientID),
             without(after, desired.clientID),
@@ -386,7 +613,16 @@ export async function cvatBridge(request) {
           throw Error(
             "Audit không khớp ID/hình học/metadata hoặc annotation khác. Dừng; kiểm tra CVAT và backup.",
           );
+        const serverAfter = await serverAnnotations();
+        assertServerIdentity(serverReference, serverAfter);
         audited = true;
+        memory.serverGuard = {
+          server: serverReference,
+          order: nativeOrder,
+          clientID: desired.clientID,
+          offTarget,
+        };
+        memory.recoveryRequired = !!writeError;
         history = clone(await job.actions.get());
         if (!restoring && !equal(before, after)) {
           // Native history may be capped (32 in upstream). Use native Undo only
@@ -410,6 +646,7 @@ export async function cvatBridge(request) {
             before,
             after,
             history,
+            token,
             nativeUndoCount,
             clientID: desired.clientID,
           };
@@ -418,15 +655,22 @@ export async function cvatBridge(request) {
       } catch (error) {
         warning = [warning, error.message].filter(Boolean).join("\n");
         // A render failure after a successful audit does not erase a valid undo.
-        if (!audited) memory.latest = null;
+        if (!audited) {
+          memory.latest = null;
+          memory.quarantine = warning;
+        }
       }
       const target = after?.tracks.find((t) => t.clientID === desired.clientID);
       return {
         ok: true,
-        applied: writeError ? null : true,
+        applied: writeError || !audited ? null : true,
         partial: !!writeError,
         audited,
         identityPreserved: audited,
+        serverIdentityVerified: audited,
+        serverContentVerifiedAfterUserSave: false,
+        order: nativeOrder,
+        quarantined: !!memory.quarantine,
         clientID: target?.clientID,
         serverID: target?.id,
         changedFrames: completed,
@@ -455,6 +699,14 @@ export async function cvatBridge(request) {
         start: job.startFrame,
         end: job.stopFrame,
         autoSave: s.settings?.workspace?.autoSave,
+        // A panel can reopen without losing the page-owned audited undo.
+        // Never revive a record after unrelated edits or an identity mismatch.
+        canUndo:
+          !!memory.latest &&
+          !memory.quarantine &&
+          equal(annotations, memory.latest.after) &&
+          equal(await job.actions.get(), memory.latest.history),
+        lastToken: memory.latest?.token || null,
         activeID: Number.isInteger(a.annotations.activatedStateID)
           ? a.annotations.activatedStateID
           : a.annotations.selectedStatesID?.length === 1
@@ -571,6 +823,47 @@ export async function cvatBridge(request) {
         if (memory.abort === controller) memory.abort = null;
       }
     }
+    if (request.op === "verifyIdentity") {
+      const native = await exported();
+      checkInventory(native);
+      const persisted = await serverAnnotations();
+      const reference = memory.serverGuard?.server || persisted;
+      try {
+        assertServerIdentity(reference, persisted);
+        if (!equal(orderOf(native, false), orderOf(persisted, false)))
+          throw Error("Thứ tự object trong phiên khác server.");
+        if (
+          memory.serverGuard &&
+          !equal(memory.serverGuard.order, orderOf(native))
+        )
+          throw Error("Client/server ID hoặc thứ tự trong phiên đã đổi.");
+        if (
+          memory.serverGuard &&
+          canonical(without(native, memory.serverGuard.clientID)) !==
+            memory.serverGuard.offTarget
+        )
+          throw Error(
+            "Annotation ngoài track đã đổi kể từ Apply. Dừng để đối chiếu.",
+          );
+      } catch (error) {
+        memory.quarantine = error.message;
+        throw error;
+      }
+      return {
+        ok: true,
+        context,
+        checkedAt: new Date().toISOString(),
+        serverIdentityVerified: true,
+        serverContentMatchesSession: equal(
+          serverContent(native),
+          serverContent(persisted),
+        ),
+        quarantine: memory.quarantine,
+        order: orderOf(native),
+        serverOrder: orderOf(persisted, false),
+        serverKeyIDs: savedKeysOf(persisted),
+      };
+    }
     if (!["preflight", "apply", "undo"].includes(request.op))
       throw Error("Operation không hỗ trợ.");
     ready(true);
@@ -578,6 +871,13 @@ export async function cvatBridge(request) {
     memory.busy = true;
     ownsLock = true;
     const before = await exported();
+    checkInventory(before);
+    if (memory.quarantine)
+      throw Error("Apply đã bị khóa sau sai lệch: " + memory.quarantine);
+    if (memory.recoveryRequired && request.op !== "undo")
+      throw Error(
+        "Apply trước dừng giữa chừng. Cần hoàn tác/kiểm tra trước khi sửa tiếp.",
+      );
     if (request.op === "undo") {
       const last = memory.latest;
       if (!last || typeof job.actions?.undo !== "function")
@@ -588,27 +888,39 @@ export async function cvatBridge(request) {
           "CVAT có chỉnh sửa/Undo/Save mới. Không khôi phục đè lên dữ liệu mới; kiểm tra lịch sử CVAT.",
         );
       ready(true);
-      memory.latest = null;
       if (last.nativeUndoCount) {
         // A short batch can be undone exactly, including CVAT's source marker.
         // Do not report a failed/partial native undo as an untouched operation.
         let warning = "",
-          audited = false;
+          audited = false,
+          undoAttempted = false;
         try {
           blockUI();
+          const persistedBeforeUndo = await serverAnnotations();
+          assertServerIdentity(memory.serverGuard.server, persistedBeforeUndo);
+          memory.latest = null;
+          undoAttempted = true;
           await job.actions.undo(last.nativeUndoCount);
           const after = await exported();
           if (!equal(after, last.before))
             throw Error(
               "Undo đã chạy nhưng dữ liệu/ID chưa khớp bản trước Apply; kiểm tra CVAT.",
             );
+          assertServerIdentity(
+            memory.serverGuard.server,
+            await serverAnnotations(),
+          );
+          memory.recoveryRequired = false;
           audited = true;
           await refresh();
         } catch (error) {
           warning = error.message;
+          if (undoAttempted && !audited) memory.quarantine = warning;
         }
         return {
           ok: true,
+          canUndo: !!memory.latest,
+          quarantined: !!memory.quarantine,
           undone: audited,
           audited,
           identityPreserved: audited,
@@ -634,6 +946,7 @@ export async function cvatBridge(request) {
           undone: false,
           warning: "Khôi phục chưa được xác nhận đầy đủ. " + reply.warning,
         };
+      memory.recoveryRequired = false;
       return {
         ok: true,
         undone: true,
@@ -659,7 +972,48 @@ export async function cvatBridge(request) {
     );
     if (locks.find((x) => x.clientID === original.clientID)?.lock)
       throw Error("Track đang khóa. Mở khóa trong CVAT trước.");
-    if (request.op === "preflight") return { ok: true, before, context };
+    if (request.op === "preflight") {
+      const server = await serverAnnotations();
+      if (!equal(orderOf(before, false), orderOf(server, false)))
+        throw Error(
+          "ID/thứ tự trong phiên chưa khớp server. Chưa sửa; kiểm tra dữ liệu chưa Save.",
+        );
+      // Existing saved keyframes must refer to the same server PKs before
+      // touching geometry. Unsaved added keys may have no server ID yet.
+      assertServerIdentity(server, before);
+      let client = 0;
+      for (const kind of kinds)
+        for (const object of before[kind] || [])
+          if (object.clientID !== ++client)
+            throw Error(
+              "ID phiên hiện tại không khớp thứ tự nạp lại. Chế độ bảo vệ ID chỉ cho xem trước; chưa sửa.",
+            );
+      const receipt = crypto.randomUUID();
+      memory.prepared = {
+        receipt,
+        before: canonical(before),
+        server,
+        clientID: original.clientID,
+      };
+      return {
+        ok: true,
+        before,
+        context,
+        receipt,
+        identity: {
+          nativeOrder: orderOf(before),
+          serverOrder: orderOf(server, false),
+          serverKeyIDs: savedKeysOf(server),
+        },
+      };
+    }
+    if (
+      !memory.prepared ||
+      request.receipt !== memory.prepared.receipt ||
+      memory.prepared.before !== canonical(before) ||
+      memory.prepared.clientID !== original.clientID
+    )
+      throw Error("Thiếu kiểm tra ID server mới nhất; chưa sửa.");
     if (!request.backupStored || !equal(before, request.backup))
       throw Error(
         "Thiếu backup hoặc dữ liệu vừa đổi sau backup. Thử Apply lại để chụp bản mới.",

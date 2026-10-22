@@ -1,0 +1,6 @@
+{
+  "source": "https://raw.githubusercontent.com/cvat-ai/cvat/develop/cvat-core/src/annotations-collection.ts",
+  "sourceSha256": "3d4883e17f72f15b8f4ccf7cedd31dbc68e5f8b952488c88a10477d6bbd5fc22",
+  "date": "2026-10-22",
+  "scope": "Exact import method body; factory objects are test doubles."
+}

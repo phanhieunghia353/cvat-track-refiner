@@ -2,14 +2,15 @@
 
 ## Automated checks
 
-75 tests passed with Node.js using `node scripts/test.mjs`:
+96 tests passed with Node.js using `node scripts/test.mjs`:
 
-- 23 adapter tests: existing read-only/cloud/baseline/geometry checks plus native in-place Apply, exact client/server/keyframe IDs, selection, unrelated shapes/tags, normalized-angle reads, missing-native-state rejection with no Commit fallback, simulated host ID corruption, full core → user-box → native-save flow, sparse-key range boundaries, partial-write recovery, 60-frame restore beyond a 32-action history and 70-key sparse restore and updating a live v0.3.0 tab without inheriting its replacement undo record.
+- 36 adapter tests: existing read-only/cloud/baseline/geometry checks plus native in-place Apply, exact client/server/keyframe IDs, selection, unrelated shapes/tags, normalized-angle reads, missing-native-state rejection with no Commit fallback, simulated host ID corruption, full core → user-box → native-save flow, sparse-key range boundaries, partial-write recovery, 60-frame restore beyond a 32-action history and 70-key sparse restore and updating a live v0.3.0 tab without inheriting its replacement undo record.
 
 - 7 geometry/draft tests: XYZ transforms, angular wrap, mutable-attribute inheritance, frame sampling, unsupported cuboids, range boundaries and outside frames, unmeasured dimensions and rejected-sample interpolation.
 - 6 fitting/crop tests: undersized synthetic cuboid, center/yaw refinement, empty/ambiguous inputs, partial-side observability, search expansion, known neighbors, crop boundaries, bounded reservoir sampling and configuration limits.
 - 5 PCD tests: ASCII, binary AoS, binary_compressed SoA, LZF overlap, invalid references, truncation, HTML responses, nonfinite returns and allocation limits.
-- 3 transaction tests: backup quota abort, backup-before-Apply order and no automatic retry after transport failure.
+- 8 transaction tests: quota abort, write-once backup/read-back before Apply, preserved legacy copies, ambiguous transport blocking across reopening, corrupted read-back rejection, partial restore status and persistent client/server ID/order guards.
+- 3 persistence tests: exact official CVAT import method body with model factory doubles; stable 80-track IDs through a geometry edit, reproduction of replacement/reload numbering damage and tag/shape/track allocation order.
 - 6 temporal-evidence tests: distinct-frame votes, transient exterior clutter, persistent clutter attached through a low bridge, real surfaces outside an undersized box, unsafe voting crops and insufficient overlapping evidence.
 - 6 final-box/diagnostic tests: lateral-shift plus shrink regression; exact final geometry for every accepted fixture sample; sparse held-frame pinning and size/pose interpolation boundaries; option-specific refusals; crop export/replay with no session credentials.
 - 4 preview tests: accepted-only fusion, optional gray rejected layers, real anchor offsets and independent size/pose toggles.
@@ -17,7 +18,9 @@
 
 - 11 reconstruction tests: fixed-gauge jitter recovery, size invariance, one-plane degeneracy, disconnected islands, exclusion without data loss, rigid common-box projection, replay/privacy, bounded contextual crop, invalid resource settings, eigensolver reconstruction and hidden-frame provenance.
 
-The mocked adapter forbids server Save and unexpected network access. Native-state saves/history are in-memory contract fixtures, with a 32-action cap and an explicit forbidden replacement Commit. These tests do not certify a customized hosted CVAT; the user-reported v0.3.0 ID-change behavior was a real regression that the old mocks incorrectly accepted.
+New adapter regressions cover first-frame quarantine on reordering or unrelated edits, unreadable/changed server preflight, missing receipts, gapped client IDs, read-only post-Save key ID/content checks and an 80-object Save/reload simulation.
+
+The mocked adapter forbids server Save and unexpected network access. Annotation GET is explicitly permitted and independently simulated. Native-state saves/history are in-memory contract fixtures, with a 32-action cap and an explicit forbidden replacement Commit. These tests do not certify a customized hosted CVAT; the user-reported v0.3.0 ID-change behavior was a real regression that the old mocks incorrectly accepted.
 
 All extension JavaScript modules passed syntax checks. Source is formatted with Prettier 3.6.2; formatting is a developer tool, not an extension runtime dependency.
 
@@ -76,3 +79,7 @@ This is a real browser execution of the panel/worker, not an unpacked-extension 
 - Full privacy/security review of all possible customized CVAT/plugin internals.
 
 No real CVAT annotation was modified in this development session. The release is experimental; the distinction between automated/synthetic/browser checks and real-host integration must remain visible in future release notes.
+
+## v0.3.2 scope of evidence
+
+The public persistence fixture includes the exact import method body from official cvat-ai/cvat develop source, with SHA256/provenance recorded next to it. Its model factories are doubles; it does not execute the complete CVAT Save backend or the user's customized 2.77.1 host. The 80-object tests and injected host side effects are controlled contract tests, not a guarantee for arbitrary host behavior. No real job was mutated for validation. The new panel controls have static wiring/syntax checks; a live Brave extension installation and real post-Save verification are still required. The earlier browser observations above concern the reconstruction UI from previous versions.
