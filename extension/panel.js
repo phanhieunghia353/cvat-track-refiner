@@ -4,6 +4,7 @@ import { settings } from "./core/config.js";
 import { buildDraft } from "./core/draft.js";
 import { drawPreview } from "./ui/preview.js";
 import { makeDemo } from "./demo/generate.js";
+import { makeClutteredTrack } from "./demo/clutter.js";
 import { applyProposal } from "./cvat/transaction.js";
 
 const $ = (id) => document.getElementById(id),
@@ -29,6 +30,7 @@ function controls() {
   for (const id of [
     "read",
     "demo",
+    "demoGhost",
     "track",
     "start",
     "end",
@@ -101,7 +103,9 @@ function newWorker() {
   worker.onmessage = ({ data }) => {
     if (data.progress) {
       $("status").textContent =
-        `Tinh chỉnh vòng ${data.progress.round}/${data.progress.total}…`;
+        data.progress.stage === "consensus"
+          ? "Đang kiểm tra điểm được nhiều frame hỗ trợ…"
+          : `Tinh chỉnh vòng ${data.progress.round}/${data.progress.total}…`;
       return;
     }
     const p = pending.get(data.id);
@@ -238,7 +242,7 @@ function renderResult() {
     const tr = document.createElement("tr");
     for (const v of [
       f.frame,
-      f.xyz.length / 3,
+      `${f.xyz.length / 3}/${(f.rawXYZ || f.xyz).length / 3}`,
       (f.shift || 0).toFixed(3),
       (((f.yaw || 0) * 180) / Math.PI).toFixed(2),
       f.accepted ? "Có hỗ trợ từ frame khác" : "Giữ tâm/góc pre-label",
@@ -269,11 +273,12 @@ function renderPreview() {
     drawPreview(canvases, result, $("view").value, {
       size: $("useSize").checked,
       pose: $("usePose").checked,
+      showRejected: $("showRejected").checked,
     });
     $("viewHint").textContent =
       $("view").value === "fused"
-        ? "Điểm được căn theo tư thế đề xuất, màu theo frame. Hai box ở tâm chung chỉ so kích thước; chọn frame để xem dịch/xoay."
-        : "Điểm và hai box trong trục pre-label của frame này. Cam: gốc; xanh: đề xuất. Frame ít bằng chứng giữ tâm/góc.";
+        ? `Chỉ ghép điểm được chấp nhận, màu theo frame. Hai box lấy từ frame ${result.referenceFrame ?? "tham chiếu"}, giữ chênh lệch tâm/góc thực. Điểm bị loại: xám khi bật.`
+        : "Điểm và hai box trong trục pre-label của frame này. Cam: gốc; xanh: đề xuất. Điểm bị loại: xám khi bật; màu khác là điểm giữ lại.";
   }
 }
 async function analyze() {
@@ -356,9 +361,9 @@ function download(name, value) {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 $("read").onclick = () => run(read);
-$("demo").onclick = () =>
-  run(async () => {
-    demo = makeDemo();
+function loadDemo(clutter = false) {
+  return run(async () => {
+    demo = clutter ? makeClutteredTrack() : makeDemo();
     session = {
       annotations: { tracks: [demo.track], shapes: [], tags: [] },
       labels: [{ id: 1, name: "Xe mẫu" }],
@@ -369,9 +374,14 @@ $("demo").onclick = () =>
     canUndo = false;
     renderSession();
     show(
-      "DỮ LIỆU MẪU\nBox ban đầu nhỏ, lệch tâm và góc. Bấm Phân tích để xem thuật toán đề xuất. Apply bị khóa.",
+      clutter
+        ? "MẪU CÓ ĐIỂM NGOÀI\nPre-label gần đúng; frame 8 có cụm ngoài và dải nối thấp. Bấm Phân tích, chọn frame 8 rồi bật điểm bị loại để kiểm tra. Apply bị khóa."
+        : "DỮ LIỆU MẪU\nBox ban đầu nhỏ, lệch tâm và góc. Bấm Phân tích để xem thuật toán đề xuất. Apply bị khóa.",
     );
   });
+}
+$("demo").onclick = () => loadDemo();
+$("demoGhost").onclick = () => loadDemo(true);
 $("track").onchange = pickTrack;
 for (const id of ["start", "end", "maxFrames", "margin", "shift", "yaw", "api"])
   $(id).oninput = invalidate;
@@ -381,6 +391,7 @@ for (const id of ["useSize", "usePose"])
     renderPreview();
   };
 $("view").onchange = renderPreview;
+$("showRejected").onchange = renderPreview;
 $("analyze").onclick = () => run(analyze);
 $("cancel").onclick = () => {
   generation++;
@@ -440,11 +451,12 @@ $("backup").onclick = () =>
 $("report").onclick = () => {
   if (!result) return;
   download("track-refiner-analysis.json", {
-    version: "0.1.0",
+    version: "0.2.0",
     range: result.range,
     config: result.config,
     size: result.size,
     measuredAxes: result.measuredAxes,
+    sizeEvidence: result.sizeEvidence,
     warnings: result.warnings,
     frames: result.frames.map(
       ({ frame, original, pose, accepted, reason, shift, yaw, stats }) => ({

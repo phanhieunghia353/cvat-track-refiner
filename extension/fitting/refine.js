@@ -1,6 +1,5 @@
 import {
   bounds,
-  clamp,
   localPoint,
   worldPoint,
   quantile,
@@ -8,6 +7,7 @@ import {
   voxelSample,
 } from "../core/geometry.js";
 import { settings } from "../core/config.js";
+import { filterEvidence, estimateDimensions } from "./evidence.js";
 
 function localCloud(xyz, p, limit = 400) {
   const out = [],
@@ -34,7 +34,7 @@ function yawFromFootprint(frame, c) {
     const b = bounds(rotated),
       area = Math.max(0.02, b.size[0]) * Math.max(0.02, b.size[1]);
     return (
-      area + 0.015 * initial.size[0] * initial.size[1] * (angle / c.maxYaw) ** 2
+      area + 0.12 * initial.size[0] * initial.size[1] * (angle / c.maxYaw) ** 2
     );
   };
   const original = cost(0);
@@ -43,7 +43,7 @@ function yawFromFootprint(frame, c) {
     const value = cost(a);
     if (value < best.cost) best = { angle: a, cost: value };
   }
-  return original > 0 && (original - best.cost) / original > 0.025
+  return original > 0 && (original - best.cost) / original > 0.06
     ? best.angle
     : 0;
 }
@@ -108,6 +108,11 @@ function refinePose(frame, template, c) {
   const nearest = makeGrid(template, c.matchRadius);
   let p = [...frame.pose],
     best = poseCost(frame, p, nearest, c);
+  const originalCost = poseCost(frame, frame.original, nearest, c);
+  if (originalCost.loss <= best.loss) {
+    p = [...frame.original];
+    best = originalCost;
+  }
   // Derivative-free robust registration is intentionally small and bounded.
   // It uses a template built WITHOUT this frame, avoiding self-match validation.
   for (const [distance, angle] of [
@@ -135,12 +140,16 @@ function refinePose(frame, template, c) {
  * poses are then registered to leave-one-frame-out templates. Diagnostics are
  * evidence scores, not calibrated probabilities or claims of semantic shape. */
 export async function refineTrack(input, options = {}, progress = () => {}) {
-  const c = settings(options),
-    frames = input.map((f) => ({
+  const c = settings(options);
+  progress({ stage: "consensus" });
+  const frames = filterEvidence(
+    input.map((f) => ({
       ...f,
       original: [...f.points],
       pose: [...f.points],
-    }));
+    })),
+    c,
+  );
   const usable = frames.filter(
     (f) =>
       f.xyz.length / 3 >= c.minPoints &&
@@ -177,23 +186,10 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
     progress({ stage: "fit", round: round + 1, total: c.rounds });
     const active = usable.filter((f) => !f.rejected);
     if (active.length < 3) break;
-    const locals = active.map((f) => localCloud(f.xyz, f.pose)),
-      fused = locals.flat(),
-      b = bounds(fused);
-    const spans = locals.map((p) => bounds(p).size);
-    // A tiny visible sliver is not a measured full dimension. Shrinking requires
-    // repeated broad coverage; expansion must also have more than one witness.
-    axes = b.size.map((v, j) => {
-      const witnesses = spans.filter((s) => s[j] > baseline[j] * 0.65).length;
-      return (
-        Number.isFinite(v) &&
-        v / baseline[j] >= c.minScale &&
-        v / baseline[j] <= c.maxScale &&
-        witnesses >= 2
-      );
-    });
-    size = b.size.map((v, j) => (axes[j] ? v : size[j]));
-    const offset = b.center.map((v, j) => (axes[j] ? v : 0));
+    const estimate = estimateDimensions(active, baseline, c);
+    axes = estimate.axes;
+    size = estimate.size;
+    const offset = estimate.center;
     for (const f of active) {
       const proposed = [...f.pose],
         center = worldPoint(...offset, f.pose);
@@ -225,10 +221,27 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
       if (i % 4 === 0) await new Promise((resolve) => setTimeout(resolve, 0));
     }
   }
-  const accepted = usable.filter(
-    (f) => !f.rejected && (f.support || 0) >= 0.55,
-  );
-  if (accepted.length < 3 || !axes.some(Boolean))
+  let accepted = usable.filter((f) => !f.rejected && (f.support || 0) >= 0.55);
+  // Dimensions were formerly returned from BEFORE the last pose update. Refit
+  // endpoints on the final accepted set, then recenter so preview and Apply
+  // share the same canonical box; rejected frames cannot inflate the result.
+  let finalEstimate = estimateDimensions(accepted, baseline, c);
+  axes = finalEstimate.axes;
+  size = finalEstimate.size;
+  for (const f of accepted) {
+    const proposed = [...f.pose],
+      offset = finalEstimate.frameCenters.get(f.frame) || finalEstimate.center;
+    proposed.splice(0, 3, ...worldPoint(...offset, f.pose));
+    if (withinLimits(proposed, f.original, c)) f.pose = proposed;
+    else f.rejected = true;
+  }
+  const recenterFailed = accepted.some((f) => f.rejected);
+  accepted = accepted.filter((f) => !f.rejected);
+  if (
+    recenterFailed ||
+    accepted.length < c.consensusFrames ||
+    !axes.some(Boolean)
+  )
     return {
       applicable: false,
       reason:
@@ -269,6 +282,8 @@ export async function refineTrack(input, options = {}, progress = () => {}) {
     applicable: true,
     size,
     measuredAxes: axes,
+    sizeEvidence: finalEstimate.evidence,
+    referenceFrame: accepted[Math.floor(accepted.length / 2)].frame,
     warnings,
     template,
     frames: frames.map((f) => ({

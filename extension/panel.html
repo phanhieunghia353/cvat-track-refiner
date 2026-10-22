@@ -9,11 +9,14 @@
   <body>
     <header>
       <div>
-        <span class="eyebrow">CVAT TRACK REFINER · 0.1.0 THỬ NGHIỆM</span>
+        <span class="eyebrow">CVAT TRACK REFINER · 0.2.0 THỬ NGHIỆM</span>
         <h1>Tinh chỉnh box bằng nhiều frame</h1>
         <p>Xe và vật cứng · xử lý trên máy · xem đề xuất trước khi Apply</p>
       </div>
-      <button id="demo">Thử dữ liệu mẫu</button>
+      <div>
+        <button id="demo">Thử dữ liệu mẫu</button>
+        <button id="demoGhost">Mẫu có cụm điểm ngoài</button>
+      </div>
     </header>
     <main>
       <section class="controls" aria-label="Điều khiển phân tích">
@@ -111,6 +114,10 @@
           </div>
           <span><i class="old"></i>Pre-label <i class="new"></i>Đề xuất</span>
         </div>
+        <label class="check"
+          ><input id="showRejected" type="checkbox" />Hiện điểm bị loại
+          (xám)</label
+        >
         <p id="viewHint">
           Chọn một frame để so vị trí/góc; chế độ ghép dùng để so hình dạng và
           kích thước.
@@ -128,7 +135,7 @@
             <thead>
               <tr>
                 <th>Frame</th>
-                <th>Điểm giữ</th>
+                <th>Điểm giữ/tổng</th>
                 <th>Dịch (m)</th>
                 <th>Góc (°)</th>
                 <th>Kết quả</th>

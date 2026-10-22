@@ -1,4 +1,4 @@
-import { localPoint, worldPoint, quantile } from "../core/geometry.js";
+import { localPoint, worldPoint } from "../core/geometry.js";
 
 const EDGES = [
   [0, 1],
@@ -31,64 +31,77 @@ function corners(p, reference) {
 }
 /** Pure Canvas2D renderer. Fused colors are frame IDs, not occupancy confidence.
  * Individual-frame mode uses the original box axes for an honest pose overlay. */
-export function drawPreview(
-  canvases,
+export function previewScene(
   result,
   view = "fused",
-  options = { size: true, pose: true },
+  options = { size: true, pose: true, showRejected: false },
 ) {
   if (!result) return;
   const selected = result.frames.find((f) => String(f.frame) === String(view));
+  const anchor =
+    selected ||
+    result.frames.find((f) => f.frame === result.referenceFrame) ||
+    result.frames.find((f) => f.accepted) ||
+    result.frames[0];
+  if (!anchor) return null;
   const layers = [];
   for (let i = 0; i < result.frames.length; i++) {
     const f = result.frames[i];
     if (selected && f !== selected) continue;
-    const xyz = [],
-      reference = selected
-        ? selected.original
-        : options.pose
-          ? f.pose
-          : f.original;
-    const stride = Math.max(
-      1,
-      Math.ceil(f.xyz.length / 3 / (selected ? 4000 : 700)),
-    );
-    for (let k = 0; k < f.xyz.length; k += 3 * stride)
-      xyz.push(localPoint(f.xyz[k], f.xyz[k + 1], f.xyz[k + 2], reference));
-    layers.push({ xyz, color: `hsl(${(i * 137.5) % 360} 78% 67%)` });
+    const reference = selected
+      ? selected.original
+      : options.pose
+        ? f.pose
+        : f.original;
+    function layer(points, color, rejected = false) {
+      if (!points?.length) return;
+      const xyz = [],
+        stride = Math.max(
+          1,
+          Math.ceil(points.length / 3 / (selected ? 4000 : 700)),
+        );
+      for (let k = 0; k < points.length; k += 3 * stride)
+        xyz.push(
+          localPoint(points[k], points[k + 1], points[k + 2], reference),
+        );
+      layers.push({ xyz, color, rejected, frame: f.frame });
+    }
+    if (selected || f.accepted)
+      layer(f.xyz, `hsl(${(i * 137.5) % 360} 78% 67%)`);
+    if (options.showRejected)
+      layer(
+        !selected && !f.accepted ? f.rawXYZ : f.rejectedXYZ,
+        "#8995a7",
+        true,
+      );
   }
-  const base = [
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    ...[6, 7, 8].map((j) =>
-      quantile(
-        result.frames.map((f) => f.original[j]),
-        0.5,
-      ),
-    ),
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-    0,
-  ];
-  const old = selected
-    ? corners(selected.original, selected.original)
-    : corners(base);
-  const next = selected
-    ? [...(options.pose ? selected.pose : selected.original)]
-    : [...base];
-  if (options.size) next.splice(6, 3, ...(result.size || base.slice(6, 9)));
-  if (selected && result.measuredAxes)
+  const reference = selected
+    ? anchor.original
+    : options.pose
+      ? anchor.pose
+      : anchor.original;
+  const old = corners(anchor.original, reference);
+  const next = [...(options.pose ? anchor.pose : anchor.original)];
+  if (options.size && result.size) next.splice(6, 3, ...result.size);
+  if (result.measuredAxes)
     for (let j = 0; j < 3; j++)
-      if (!result.measuredAxes[j]) next[6 + j] = selected.original[6 + j];
-  const proposed = selected ? corners(next, selected.original) : corners(next);
+      if (!result.measuredAxes[j]) next[6 + j] = anchor.original[6 + j];
+  return {
+    layers,
+    old,
+    proposed: corners(next, reference),
+    referenceFrame: anchor.frame,
+  };
+}
+export function drawPreview(
+  canvases,
+  result,
+  view = "fused",
+  options = { size: true, pose: true, showRejected: false },
+) {
+  const scene = previewScene(result, view, options);
+  if (!scene) return;
+  const { layers, old, proposed } = scene;
   const all = [...layers.flatMap((l) => l.xyz), ...old, ...proposed];
   for (let index = 0; index < canvases.length; index++) {
     const canvas = canvases[index],
@@ -119,7 +132,7 @@ export function drawPreview(
       ];
     for (const layer of layers) {
       ctx.fillStyle = layer.color;
-      ctx.globalAlpha = 0.65;
+      ctx.globalAlpha = layer.rejected ? 0.3 : 0.65;
       for (const q of layer.xyz) {
         const [x, y] = project(q);
         ctx.fillRect(x, y, 1.8, 1.8);

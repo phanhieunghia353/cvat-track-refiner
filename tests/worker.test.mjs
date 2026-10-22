@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { Worker } from "node:worker_threads";
 import { once } from "node:events";
 import { makeDemo } from "../extension/demo/generate.js";
+import { makeClutteredTrack } from "../extension/demo/clutter.js";
 async function start() {
   const w = new Worker(new URL("./worker-harness.mjs", import.meta.url));
   await once(w, "message");
@@ -70,6 +71,27 @@ test("worker returns decode errors without publishing a plan and cancellation te
     w.postMessage({ id: 999, op: "analyze" });
     await progress;
     await w.terminate();
+  } finally {
+    await w.terminate();
+  }
+});
+
+test("PCD/crop/worker pipeline keeps a near-correct vehicle size despite exterior clutter", async () => {
+  const { w, call } = await start();
+  try {
+    const demo = makeClutteredTrack();
+    await call("init", { track: demo.track, config: {}, others: [] });
+    for (const f of demo.frames) {
+      const buffer = pcd(f.xyz);
+      await call("ingest", { frame: f.frame, buffer }, [buffer]);
+    }
+    const r = await call("analyze");
+    assert.equal(r.applicable, true);
+    r.size.forEach((v, j) =>
+      assert.ok(Math.abs(v - demo.truth[0][6 + j]) < 0.06),
+    );
+    assert.ok(r.frames.every((f) => Math.abs(f.yaw) < Math.PI / 180));
+    assert.ok(r.frames[8].rejectedXYZ.length > 0);
   } finally {
     await w.terminate();
   }

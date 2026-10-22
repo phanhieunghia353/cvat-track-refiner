@@ -12,6 +12,9 @@ export const DEFAULTS = Object.freeze({
   maxScale: 1.65,
   minScale: 0.65,
   matchRadius: 0.35,
+  consensusRadius: 0.22,
+  consensusFrames: 3,
+  endpointTolerance: 0.16,
   maxFrameBytes: 32 * 1024 * 1024,
   maxRange: 1200,
 });
@@ -25,6 +28,9 @@ export function settings(input = {}) {
     maxShift: [0.05, 1.5],
     maxYaw: [0.01, Math.PI / 6],
     rounds: [1, 3, true],
+    consensusRadius: [0.1, 0.4],
+    consensusFrames: [3, 8, true],
+    endpointTolerance: [0.05, 0.25],
   };
   for (const [key, [lo, hi, integer]] of Object.entries(rules))
     if (

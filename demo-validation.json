@@ -1,13 +1,59 @@
 {
-  "fixture": "Synthetic rigid cuboid, complementary surfaces, deterministic seed 72",
-  "frames": 12,
-  "accepted": 12,
-  "trueSize": [4.6, 1.9, 1.6],
-  "baselineSize": [3.9, 1.65, 1.45],
-  "proposedSize": [4.64856093320855, 1.967621163885884, 1.61794094145298],
-  "meanCenterErrorBeforeMetres": 0.19287301521985914,
-  "meanCenterErrorAfterMetres": 0.04601761026954548,
-  "meanYawErrorBeforeDegrees": 4.870141258611996,
-  "meanYawErrorAfterDegrees": 1.004048951156663,
-  "limitations": "Controlled synthetic fixture, not accuracy measured on real CVAT jobs."
+  "version": "0.2.0",
+  "limitations": "Controlled synthetic fixtures, not accuracy measured on real CVAT jobs.",
+  "cases": [
+    {
+      "name": "undersized",
+      "frames": 12,
+      "accepted": 12,
+      "trueSize": [4.6, 1.9, 1.6],
+      "baselineSize": [3.9, 1.65, 1.45],
+      "proposedSize": [
+        4.635748571495734, 1.9215753645269378, 1.6199853575229644
+      ],
+      "measuredAxes": [true, true, true],
+      "meanCenterErrorBeforeMetres": 0.19287301521985914,
+      "meanCenterErrorAfterMetres": 0.024186891153674343,
+      "meanYawErrorBeforeDegrees": 4.870141258611999,
+      "meanYawErrorAfterDegrees": 0.6498822844899969,
+      "frame8": {
+        "kept": 825,
+        "rejected": 0
+      }
+    },
+    {
+      "name": "transient exterior cluster",
+      "frames": 12,
+      "accepted": 12,
+      "trueSize": [4.6, 1.9, 1.6],
+      "baselineSize": [4.6, 1.9, 1.6],
+      "proposedSize": [4.6, 1.9, 1.6],
+      "measuredAxes": [true, true, true],
+      "meanCenterErrorBeforeMetres": 0,
+      "meanCenterErrorAfterMetres": 0.005348787890452018,
+      "meanYawErrorBeforeDegrees": 0,
+      "meanYawErrorAfterDegrees": 0,
+      "frame8": {
+        "kept": 829,
+        "rejected": 458
+      }
+    },
+    {
+      "name": "persistent low-bridge clutter",
+      "frames": 12,
+      "accepted": 12,
+      "trueSize": [4.6, 1.9, 1.6],
+      "baselineSize": [4.6, 1.9, 1.6],
+      "proposedSize": [4.6, 1.9, 1.6],
+      "measuredAxes": [true, true, true],
+      "meanCenterErrorBeforeMetres": 0,
+      "meanCenterErrorAfterMetres": 0.00535041890373049,
+      "meanYawErrorBeforeDegrees": 0,
+      "meanYawErrorAfterDegrees": 0,
+      "frame8": {
+        "kept": 831,
+        "rejected": 456
+      }
+    }
+  ]
 }

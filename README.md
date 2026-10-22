@@ -1,4 +1,4 @@
-# CVAT Track Refiner · Experimental 0.1.0
+# CVAT Track Refiner · Experimental 0.2.0
 
 Extension cho Brave / Chrome / Edge: tinh chỉnh **kích thước, tâm và yaw** của cuboid track LiDAR bằng các quan sát nhiều frame. Thuật toán chạy trên máy, có xem trước, backup trước Apply và Undo qua CVAT. Không cần model AI, GPU, Python hay server riêng để sử dụng extension.
 
@@ -17,6 +17,8 @@ Không phải nhập hostname hoặc token để cài. Quyền `activeTab`, `scr
 ## Thử không dùng dữ liệu thật
 
 Bấm **Thử dữ liệu mẫu** → **Phân tích**. Mẫu là một vật cứng tổng hợp có box bị nhỏ, lệch tâm và góc, với nhiều mặt nhìn bổ sung. Apply luôn bị khóa trong chế độ mẫu. Màu điểm phân biệt frame, không phải xác suất đúng.
+
+Bấm **Mẫu có cụm điểm ngoài** để thử pre-label gần đúng với nhiễu ở frame 8. Sau phân tích, chọn frame 8 và bật **Hiện điểm bị loại (xám)**: màu xám là điểm không dùng để fit, các màu khác là điểm giữ lại. Đây là phản ví dụ tổng hợp cho lỗi box bị kéo theo cụm ngoài, không phải bản dựng lại scan riêng của người dùng.
 
 ## Dùng với CVAT
 
@@ -38,7 +40,9 @@ Bấm **Thử dữ liệu mẫu** → **Phân tích**. Mẫu là một vật c�
 - Tải PCD từ chính server CVAT trong phiên đăng nhập. Đọc ASCII, binary và binary_compressed LZF, tọa độ float32/float64.
 - Tối đa 48 frame mẫu, mặc định 24; tối đa 1200 frame trong khoảng Apply. Tối đa 32 MB/file và 2 triệu điểm/frame, giới hạn dữ liệu giải nén 128 MB; chỉ giữ crop đã lấy mẫu trong worker.
 - Vùng lấy điểm rộng hơn box, loại mặt đất ngang gần đáy dự kiến và điểm nằm trong box các track khác, rồi lấy thành phần liên thông có hỗ trợ từ pre-label.
-- Dò yaw cục bộ, ghép điểm trong hệ object, ước lượng kích thước có điều kiện về độ phủ, đăng ký từng frame với mẫu từ các frame khác. Có giới hạn dịch/xoay và regularization về pre-label.
+- Trước khi fit: đưa điểm về trục pre-label, yêu cầu vùng điểm được ít nhất 3 frame độc lập hỗ trợ trong bán kính 0,22 m. Crop bị đánh dấu không an toàn không có quyền bỏ phiếu. Cụm điểm phải nối với thân box; dải điểm thấp ngoài box không được làm cầu nối sang vật khác.
+- Dò yaw cục bộ trên điểm đã lọc; đăng ký từng frame với mẫu từ các frame khác. Ước lượng L/W bằng dải thân giữa, dùng trung vị biên mỗi frame và độ phân tán biên thay cho gộp mọi điểm rồi lấy cực trị. Tính lại kích thước sau vòng chỉnh tư thế cuối. Có giới hạn dịch/xoay và regularization về pre-label.
+- Preview ghép chỉ dùng các frame được chấp nhận; hai box giữ chênh lệch tâm/góc thực của frame tham chiếu. Có thể bật điểm bị loại màu xám; bảng hiển thị số điểm giữ/tổng crop.
 - Kích thước chỉ đổi ở các chiều đạt kiểm tra bằng chứng. Frame mẫu bị từ chối giữ tâm/góc; giữa hai mẫu chấp nhận, hiệu chỉnh được nội suy. Không truyền hiệu chỉnh qua một mẫu bị từ chối.
 - Không tự đổi outside, occluded, class, attribute, nhóm, roll/pitch hoặc padding. Frame outside giữ hình học. Các điểm biên được ghim để hạn chế ảnh hưởng nội suy ngoài khoảng.
 - Bản đầu tạo keyframe dày trong khoảng visible để biểu diễn đề xuất chính xác. Chưa có rút gọn keyframe. Với job dài, hãy thử một khoảng nhỏ trước.
@@ -57,6 +61,8 @@ Bấm **Thử dữ liệu mẫu** → **Phân tích**. Mẫu là một vật c�
 ## Giới hạn về chất lượng
 
 Không thể suy ra chắc chắn mặt chưa từng được quan sát. Box bị lệch xa ngoài vùng tìm, sai ID tracking, vật chạm nhau, mặt đường dốc, scan bị méo chuyển động, điểm quá thưa hoặc nhiều outlier vẫn có thể cho kết quả sai. Component có thể dính vật bên cạnh; kiểm tra cảnh cạnh tranh là heuristic, không phải semantic segmentation.
+
+Lọc theo thời gian dựa vào trục pre-label gần đúng: pose sai nhiều, bề mặt chỉ thấy một lần hoặc chuyển động quét có thể làm mất điểm thật. Nhiễu lặp lại và chạm thân xe vẫn có thể qua bộ lọc. Đây chưa phải ray tracing để xác nhận vùng trống, model hình dạng hay hệ thống loại ghosting hoàn chỉnh. Không nới box chỉ vì một frame có điểm ngoài; ngược lại, phần thân thật ngoài box nhỏ vẫn có thể được giữ nếu có bằng chứng lặp lại và kết nối phù hợp.
 
 Yaw search giữ gần pre-label và không tự phân biệt đầu/đuôi 180°. Mẫu từ nhiều frame giảm thiếu góc nhìn nhưng không biến bài toán không đủ bằng chứng thành đo đạc chắc chắn. Chỉ báo “có hỗ trợ” là kiểm tra khớp hình học, chưa được hiệu chuẩn thành độ chính xác. Không coi việc tăng số điểm hoặc giảm residual là chứng minh box đúng.
 

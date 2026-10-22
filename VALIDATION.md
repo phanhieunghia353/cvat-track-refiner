@@ -2,14 +2,16 @@
 
 ## Automated checks
 
-36 tests passed with Node.js using `node scripts/test.mjs`:
+47 tests passed with Node.js using `node scripts/test.mjs`:
 
 - 13 adapter tests: read-only snapshot/preflight, unsaved unrelated edits, Auto save allowed, exact off-target audit, baseline and context conflicts, locked/saving/drawing/review states, metadata/geometry validation, native Undo, post-commit refresh failure, ambiguous Commit error, navigation after Commit, API prefix/trailing-slash discovery without following redirects, filtered-frame rejection and adding keys from a sparse-track draft.
 - 7 geometry/draft tests: XYZ transforms, angular wrap, mutable-attribute inheritance, frame sampling, unsupported cuboids, range boundaries and outside frames, unmeasured dimensions and rejected-sample interpolation.
 - 6 fitting/crop tests: undersized synthetic cuboid, center/yaw refinement, empty/ambiguous inputs, partial-side observability, search expansion, known neighbors, crop boundaries, bounded reservoir sampling and configuration limits.
 - 5 PCD tests: ASCII, binary AoS, binary_compressed SoA, LZF overlap, invalid references, truncation, HTML responses, nonfinite returns and allocation limits.
 - 3 transaction tests: backup quota abort, backup-before-Apply order and no automatic retry after transport failure.
-- 2 worker tests: actual worker-thread PCD → crop → fit pipeline, transferable buffers, parse failure and termination during analysis.
+- 6 temporal-evidence tests: distinct-frame votes, transient exterior clutter, persistent clutter attached through a low bridge, real surfaces outside an undersized box, unsafe voting crops and insufficient overlapping evidence.
+- 4 preview tests: accepted-only fusion, optional gray rejected layers, real anchor offsets and independent size/pose toggles.
+- 3 worker tests: actual worker-thread PCD → crop → fit pipeline, transferable buffers, parse failure and termination during analysis; clutter fixture through the complete PCD/crop/fit pipeline.
 
 The mocked adapter forbids server Save and unexpected network access. Its commits are in-memory mocks; these tests do not certify native CVAT history internals on a hosted instance.
 
@@ -21,12 +23,20 @@ All extension JavaScript modules passed syntax checks. Source is formatted with 
 
 | Measure                          | Pre-label             | Proposed              |
 | -------------------------------- | --------------------- | --------------------- |
-| L / W / H, metres                | 3.900 / 1.650 / 1.450 | 4.649 / 1.968 / 1.618 |
+| L / W / H, metres                | 3.900 / 1.650 / 1.450 | 4.636 / 1.922 / 1.620 |
 | True dimensions, metres          | 4.600 / 1.900 / 1.600 | same reference        |
-| Mean center error, metres        | 0.193                 | 0.046                 |
-| Mean absolute yaw error, degrees | 4.870                 | 1.004                 |
+| Mean center error, metres        | 0.193                 | 0.024                 |
+| Mean absolute yaw error, degrees | 4.870                 | 0.650                 |
 
 All 12 samples accepted in this fixture. These results are **not an accuracy estimate for real cars, real occlusion, or the user's dataset**. The synthetic object is cuboidal and the scenario is intentionally controlled. Test thresholds must not be relaxed just to produce a proposal on harder inputs.
+
+## Exterior-clutter regression
+
+`extension/demo/clutter.js` adds a vehicle-shaped body and a detached rear cluster joined by low returns. On the earlier 0.1 algorithm, adding this cluster to frame 8 increased a true 4.6 m length to approximately 5.33 m; making the cluster persistent produced approximately 5.50 m. This confirmed the fitting problem independently of preview rendering.
+
+In 0.2, both fixtures retain L/W/H = 4.600 / 1.900 / 1.600 m and zero yaw correction. Frame 8 discards 458/1287 points in the transient case and 456/1287 in the persistent case. Small center corrections remain (mean approximately 0.005 m); this is not a zero-change guarantee. The original undersized fixture still expands to recover observed body surfaces, so passing is not achieved by clipping everything outside the pre-label.
+
+These are controlled counterexamples, not reconstructions of the screenshot or proof that all real ghosting has been solved. Repeated clutter touching the main body can still pass the filter, and genuine one-off observations can be discarded. Actual data from the reported frame has not been run.
 
 ## Browser verification
 
@@ -34,6 +44,7 @@ Verified the actual panel and ES-module Web Worker in the in-app Chromium browse
 
 - Load demo, analyze 12 frames, render proposed dimensions and accepted/rejected rows.
 - Fused and individual-frame Top/Side/Front views, original/proposed box overlays.
+- New exterior-clutter demo: frame 8, gray discarded-point overlay and retained dimensions; Apply remains disabled.
 - Size/pose option switching and refusal when fewer than three visible frames are selected.
 - Apply remains disabled in demo mode.
 
