@@ -1,5 +1,12 @@
 # Changelog
 
+## Documentation update — 23 October 2026
+
+- Provide equivalent detailed English (`README.md`) and Vietnamese (`README.vi.md`) guides with language switching, direct release downloads, installation/update instructions, reconstruction workflow, identity protection, recovery limits, troubleshooting and developer setup.
+- Add both READMEs as separate assets on the existing v0.3.2 GitHub Release and make its notes bilingual. Preserve the original release tag, ZIPs and checksums.
+- Include the Vietnamese README in future extension packages. No extension runtime, fitting or annotation-writing behavior changed.
+
+
 ## 0.3.2 — identity/order guard and persistent audit
 
 - Require read-only server identity preflight, fresh receipt and unchanged server baseline before native writes. Block unsupported ID inventories and out-of-import-order client IDs.

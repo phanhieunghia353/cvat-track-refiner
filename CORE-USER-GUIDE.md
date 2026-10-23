@@ -49,7 +49,7 @@ Box được chọn phải nằm trong giới hạn dịch/xoay và tỷ lệ k�
 - **Tải chẩn đoán có điểm crop:** crop giới hạn, masks và cấu hình để tái chạy lõi bằng `node scripts/replay.mjs FILE.json`.
 - **Tải snapshot dựng hình:** thêm bề mặt đã hợp nhất và lựa chọn xem/box chung. Bản đầu xuất snapshot và hỗ trợ replay bằng CLI; chưa có chức năng nhập snapshot vào UI.
 
-Các file chứa tọa độ là dữ liệu job. Chúng chỉ được lưu về máy khi bạn bấm, không tự upload. Không commit chúng vào repository Public. Không chứa cookie/token hay URL job trong định dạng xuất của tool.
+Các file chứa tọa độ là dữ liệu job. Chúng chỉ được lưu về máy khi bạn bấm, không tự upload. Không commit chúng vào repository Public. Các báo cáo phân tích/điểm crop không kèm cookie/token. File recovery/backup có ngữ cảnh job và host; giữ riêng, không đưa lên repo Public.
 
 ## Giới hạn của mốc đầu
 
@@ -66,6 +66,6 @@ Trước Apply phải đọc được annotation server và xác minh ID/thứ t
 
 Mỗi frame được audit đầy đủ ngay sau sửa. Sau Save/Auto save, bấm **Kiểm tra ID sau Save (chỉ đọc)**. Nút chỉ GET và đọc phiên/storage; không thử sửa nhãn để kiểm tra. Thông báo Apply thành công chỉ xác nhận kiểm tra tại thời điểm đó. Không bảo đảm cho hành vi tương lai của host tùy biến.
 
-**Tải lịch sử backup/audit** dùng được sau mở lại panel: các snapshot/log từng lượt không bị tự ghi đè. File này chứa annotation và URL/ngữ cảnh job; giữ riêng, không đưa lên repo Public. Nếu update, chép bản mới vào đúng thư mục cũ và Reload **extension**, giữ nguyên ID/storage; không gỡ cài đặt hoặc Load unpacked từ thư mục khác. Xem README.
+**Tải lịch sử backup/audit** dùng được sau mở lại panel: các snapshot/log từng lượt không bị tự ghi đè. File này chứa annotation và URL/ngữ cảnh job; giữ riêng, không đưa lên repo Public. Nếu update, chép bản mới vào đúng thư mục cũ và Reload **extension**, giữ nguyên ID/storage; không gỡ cài đặt hoặc Load unpacked từ thư mục khác. Xem [README tiếng Việt](README.vi.md).
 
 Bản này không sửa lại ID đã mất trong sự cố trước. Không tự import backup và không tự ghi đè toàn bộ job để khôi phục.
